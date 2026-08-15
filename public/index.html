@@ -1,0 +1,469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Wesley · Lead Desk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500&family=Archivo:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0f0e0c;
+    --surface: #171613;
+    --surface-2: #1d1b17;
+    --hairline: #2a2721;
+    --hairline-soft: #221f1a;
+    --text: #ece7db;
+    --text-2: #a49d8d;
+    --text-3: #6e685c;
+    --gold: #b98a2f;          /* data: captured  (validated) */
+    --blue: #4a83c2;          /* data: leads     (validated) */
+    --gold-soft: #c9a96a;     /* decorative accents / text on dark */
+    --good: #6fa878;
+    --warn: #c2833d;
+    --serious: #c05b5b;
+    --radius: 14px;
+    --serif: "Fraunces", Georgia, "Times New Roman", serif;
+    --sans: "Archivo", -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background:
+      radial-gradient(1200px 500px at 70% -10%, rgba(185,138,47,.06), transparent 60%),
+      var(--ink);
+    color: var(--text);
+    font-family: var(--sans);
+    font-weight: 300;
+    letter-spacing: .01em;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 0 28px 80px; }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 34px 0 22px; border-bottom: 1px solid var(--hairline);
+  }
+  .wordmark { display: flex; align-items: baseline; gap: 14px; }
+  .wordmark h1 {
+    font-family: var(--serif); font-weight: 400; font-size: 26px; letter-spacing: .02em;
+  }
+  .wordmark h1 em { font-style: italic; color: var(--gold-soft); }
+  .wordmark .divider { width: 1px; height: 18px; background: var(--hairline); align-self: center; }
+  .wordmark .sub {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .22em; color: var(--text-3);
+  }
+  .status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-3); }
+  .pulse {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--good);
+    box-shadow: 0 0 0 0 rgba(111,168,120,.5); animation: pulse 2.4s infinite;
+  }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(111,168,120,.45); }
+    70% { box-shadow: 0 0 0 7px rgba(111,168,120,0); }
+    100% { box-shadow: 0 0 0 0 rgba(111,168,120,0); }
+  }
+
+  /* ---------- KPI tiles ---------- */
+  .kpis {
+    display: grid; grid-template-columns: 1.35fr 1fr 1fr 1fr; gap: 16px; margin: 28px 0 16px;
+  }
+  @media (max-width: 980px) { .kpis { grid-template-columns: 1fr 1fr; } }
+  .tile {
+    background: var(--surface); border: 1px solid var(--hairline-soft);
+    border-radius: var(--radius); padding: 24px 26px 22px; position: relative; overflow: hidden;
+  }
+  .tile.hero { border-color: rgba(185,138,47,.35); }
+  .tile.hero::after {
+    content: ""; position: absolute; inset: 0;
+    background: radial-gradient(420px 160px at 15% 0%, rgba(185,138,47,.10), transparent 70%);
+    pointer-events: none;
+  }
+  .tile .label {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .2em; color: var(--text-3);
+    margin-bottom: 14px;
+  }
+  .tile .value {
+    font-family: var(--serif); font-weight: 300; font-size: 46px; line-height: 1;
+    font-variant-numeric: lining-nums; color: var(--text);
+  }
+  .tile.hero .value { font-size: 58px; color: var(--gold-soft); }
+  .tile .delta { margin-top: 12px; font-size: 12px; color: var(--text-2); }
+  .tile .delta b { color: var(--text); font-weight: 500; }
+
+  /* ---------- cards / layout ---------- */
+  .grid { display: grid; grid-template-columns: 1.65fr 1fr; gap: 16px; margin-bottom: 16px; }
+  @media (max-width: 980px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--surface); border: 1px solid var(--hairline-soft);
+    border-radius: var(--radius); padding: 22px 26px 18px;
+  }
+  .card-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 6px; }
+  .card-head h2 {
+    font-family: var(--serif); font-weight: 400; font-size: 17px; letter-spacing: .02em;
+  }
+  .legend { display: flex; gap: 16px; font-size: 11.5px; color: var(--text-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .swatch { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+
+  /* ---------- chart ---------- */
+  .chart-box { position: relative; }
+  #tooltip {
+    position: absolute; pointer-events: none; opacity: 0; transition: opacity .12s;
+    background: var(--surface-2); border: 1px solid var(--hairline);
+    border-radius: 10px; padding: 10px 13px; font-size: 12px; min-width: 132px;
+    box-shadow: 0 10px 28px rgba(0,0,0,.45); z-index: 5;
+  }
+  #tooltip .t-date { color: var(--text-3); font-size: 10.5px; text-transform: uppercase; letter-spacing: .14em; margin-bottom: 7px; }
+  #tooltip .t-row { display: flex; justify-content: space-between; gap: 16px; padding: 1.5px 0; }
+  #tooltip .t-row b { font-weight: 500; }
+
+  /* ---------- funnel ---------- */
+  .funnel-row { display: grid; grid-template-columns: 128px 1fr 34px; align-items: center; gap: 12px; padding: 7px 0; }
+  .funnel-row .name { font-size: 12px; color: var(--text-2); text-align: right; }
+  .funnel-row .bar-track { height: 14px; position: relative; }
+  .funnel-row .bar {
+    height: 14px; border-radius: 4px; background: var(--gold); opacity: .92;
+    min-width: 2px; transition: width .5s cubic-bezier(.2,.8,.2,1);
+  }
+  .funnel-row.review .bar { background: var(--warn); }
+  .funnel-row.closed .bar { background: #4d483e; }
+  .funnel-row .n { font-size: 12.5px; color: var(--text); font-variant-numeric: tabular-nums; }
+
+  /* ---------- table ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    text-align: left; font-size: 10px; text-transform: uppercase; letter-spacing: .18em;
+    color: var(--text-3); font-weight: 500; padding: 12px 14px; border-bottom: 1px solid var(--hairline);
+  }
+  tbody td { padding: 13px 14px; border-bottom: 1px solid var(--hairline-soft); color: var(--text-2); }
+  tbody tr { cursor: pointer; transition: background .12s; }
+  tbody tr:hover { background: rgba(255,255,255,.02); }
+  td.lead-name { color: var(--text); font-weight: 400; }
+  td.lead-name .handle { color: var(--text-3); font-size: 11.5px; margin-top: 2px; }
+  .chip {
+    display: inline-block; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+    padding: 3px 9px; border-radius: 20px; border: 1px solid var(--hairline); color: var(--text-2);
+  }
+  .chip.buy { border-color: rgba(74,131,194,.4); color: #9db9dd; }
+  .chip.sell { border-color: rgba(185,138,47,.4); color: var(--gold-soft); }
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; }
+  .badge .dot { width: 6px; height: 6px; border-radius: 50%; }
+  .contact-yes { color: var(--gold-soft); font-variant-numeric: tabular-nums; }
+  .contact-no { color: var(--text-3); }
+  .time { font-variant-numeric: tabular-nums; color: var(--text-3); font-size: 12px; }
+
+  /* ---------- drawer ---------- */
+  #drawer {
+    position: fixed; top: 0; right: -480px; width: 460px; max-width: 92vw; height: 100%;
+    background: var(--surface-2); border-left: 1px solid var(--hairline);
+    transition: right .28s cubic-bezier(.2,.8,.2,1); z-index: 30; display: flex; flex-direction: column;
+  }
+  #drawer.open { right: 0; }
+  #drawer .d-head { padding: 26px 28px 18px; border-bottom: 1px solid var(--hairline); }
+  #drawer .d-head h3 { font-family: var(--serif); font-weight: 400; font-size: 20px; }
+  #drawer .d-head .meta { font-size: 12px; color: var(--text-3); margin-top: 6px; }
+  #drawer .d-close {
+    position: absolute; top: 20px; right: 20px; background: none; border: 1px solid var(--hairline);
+    color: var(--text-2); border-radius: 8px; width: 30px; height: 30px; cursor: pointer; font-size: 14px;
+  }
+  #drawer .d-body { flex: 1; overflow-y: auto; padding: 22px 28px; display: flex; flex-direction: column; gap: 10px; }
+  .bubble { max-width: 84%; padding: 10px 14px; border-radius: 14px; font-size: 13px; line-height: 1.45; }
+  .bubble.user { align-self: flex-start; background: #24211b; color: var(--text-2); border-bottom-left-radius: 4px; }
+  .bubble.assistant { align-self: flex-end; background: rgba(185,138,47,.14); border: 1px solid rgba(185,138,47,.2); color: var(--text); border-bottom-right-radius: 4px; }
+  .bubble .src { display: block; font-size: 9.5px; letter-spacing: .14em; text-transform: uppercase; color: var(--text-3); margin-top: 6px; }
+  #overlay { position: fixed; inset: 0; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 25; }
+  #overlay.show { opacity: 1; pointer-events: auto; }
+
+  .empty { padding: 48px 0; text-align: center; color: var(--text-3); font-size: 13px; }
+  footer { margin-top: 34px; font-size: 11px; color: var(--text-3); display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="wordmark">
+      <h1>Wesley <em>Lead&nbsp;Desk</em></h1>
+      <div class="divider"></div>
+      <span class="sub">TikTok DM Concierge</span>
+    </div>
+    <div class="status"><span class="pulse"></span><span id="last-updated">connecting…</span></div>
+  </header>
+
+  <section class="kpis" aria-label="Key metrics">
+    <div class="tile hero">
+      <div class="label">Numbers Captured</div>
+      <div class="value" id="kpi-captured">—</div>
+      <div class="delta"><b id="kpi-rate">—</b> capture rate</div>
+    </div>
+    <div class="tile">
+      <div class="label">Total Leads</div>
+      <div class="value" id="kpi-leads">—</div>
+      <div class="delta"><b id="kpi-msgs">—</b> messages exchanged</div>
+    </div>
+    <div class="tile">
+      <div class="label">Active Conversations</div>
+      <div class="value" id="kpi-active">—</div>
+      <div class="delta">working toward a number</div>
+    </div>
+    <div class="tile">
+      <div class="label">Needs Attention</div>
+      <div class="value" id="kpi-review">—</div>
+      <div class="delta"><b id="kpi-optout">—</b> opted out</div>
+    </div>
+  </section>
+
+  <section class="grid">
+    <div class="card">
+      <div class="card-head">
+        <h2>Lead flow · last 14 days</h2>
+        <div class="legend">
+          <span><i class="swatch" style="background:#4a83c2"></i>New leads</span>
+          <span><i class="swatch" style="background:#b98a2f"></i>Numbers captured</span>
+        </div>
+      </div>
+      <div class="chart-box">
+        <svg id="flow-chart" width="100%" height="270" role="img" aria-label="New leads and captured numbers per day, last 14 days"></svg>
+        <div id="tooltip"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Pipeline</h2></div>
+      <div id="funnel"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-head"><h2>Leads</h2><span class="legend" id="lead-count"></span></div>
+    <div style="overflow-x:auto">
+      <table aria-label="Recent leads">
+        <thead>
+          <tr><th>Lead</th><th>Intent</th><th>Stage</th><th>Contact</th><th>Arrived</th></tr>
+        </thead>
+        <tbody id="lead-rows"></tbody>
+      </table>
+    </div>
+    <div class="empty" id="empty-state" style="display:none">No leads yet — they'll appear here the moment someone replies.</div>
+  </section>
+
+  <footer>
+    <span>Wesley DM Concierge — automated TikTok lead capture</span>
+    <span id="footer-ts"></span>
+  </footer>
+</div>
+
+<div id="overlay" onclick="closeDrawer()"></div>
+<aside id="drawer" aria-label="Conversation">
+  <div class="d-head">
+    <button class="d-close" onclick="closeDrawer()" aria-label="Close">✕</button>
+    <h3 id="d-name">—</h3>
+    <div class="meta" id="d-meta"></div>
+  </div>
+  <div class="d-body" id="d-messages"></div>
+</aside>
+
+<script>
+const STAGE_LABELS = {
+  new: "New", clarification_pending: "Clarifying", value_offered: "Value offered",
+  contact_requested: "Number requested", contact_captured: "Number captured",
+  qualification: "Qualifying", handoff_ready: "Handoff ready", follow_up_due: "Follow-up due",
+  human_review: "Needs Wesley", closed: "Closed",
+};
+const STAGE_ORDER = ["new","clarification_pending","value_offered","contact_requested",
+  "contact_captured","handoff_ready","follow_up_due","human_review","closed"];
+const STAGE_COLORS = {
+  new: "#6e685c", clarification_pending: "#7d8a99", value_offered: "#4a83c2",
+  contact_requested: "#4a83c2", contact_captured: "#b98a2f", qualification: "#b98a2f",
+  handoff_ready: "#6fa878", follow_up_due: "#c2833d", human_review: "#c05b5b", closed: "#4d483e",
+};
+
+const fmt = new Intl.NumberFormat("en-US");
+const pct = (x) => (x * 100).toFixed(0) + "%";
+
+function relTime(iso) {
+  if (!iso) return "—";
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 90) return "just now";
+  if (s < 3600) return Math.round(s / 60) + "m ago";
+  if (s < 86400) return Math.round(s / 3600) + "h ago";
+  return Math.round(s / 86400) + "d ago";
+}
+
+async function refresh() {
+  try {
+    const [metrics, leads] = await Promise.all([
+      fetch("/api/metrics").then((r) => r.json()),
+      fetch("/api/leads?limit=100").then((r) => r.json()),
+    ]);
+    renderKpis(metrics);
+    renderChart(metrics.daily);
+    renderFunnel(metrics.funnel);
+    renderTable(leads);
+    const t = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    document.getElementById("last-updated").textContent = "live · updated " + t;
+    document.getElementById("footer-ts").textContent = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+  } catch {
+    document.getElementById("last-updated").textContent = "connection lost — retrying";
+  }
+}
+
+function renderKpis(m) {
+  const t = m.totals;
+  document.getElementById("kpi-captured").textContent = fmt.format(t.captured);
+  document.getElementById("kpi-rate").textContent = pct(t.captureRate);
+  document.getElementById("kpi-leads").textContent = fmt.format(t.leads);
+  document.getElementById("kpi-msgs").textContent = fmt.format(t.messagesIn + t.messagesOut);
+  document.getElementById("kpi-active").textContent = fmt.format(t.active);
+  document.getElementById("kpi-review").textContent = fmt.format(t.humanReview);
+  document.getElementById("kpi-optout").textContent = fmt.format(t.optedOut);
+}
+
+/* ---------------- line/area chart with crosshair + tooltip ---------------- */
+let chartState = null;
+function renderChart(daily) {
+  const svg = document.getElementById("flow-chart");
+  const W = svg.clientWidth || 700, H = 270, P = { t: 18, r: 14, b: 30, l: 34 };
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const iw = W - P.l - P.r, ih = H - P.t - P.b;
+  const maxY = Math.max(3, ...daily.map((d) => Math.max(d.leads, d.captured)));
+  const x = (i) => P.l + (i / Math.max(1, daily.length - 1)) * iw;
+  const y = (v) => P.t + ih - (v / maxY) * ih;
+
+  const line = (key) => daily.map((d, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(d[key]).toFixed(1)}`).join(" ");
+  const area = (key) => `${line(key)} L${x(daily.length - 1).toFixed(1)},${y(0)} L${x(0).toFixed(1)},${y(0)} Z`;
+
+  const ticks = [];
+  const step = maxY <= 6 ? 2 : Math.ceil(maxY / 3);
+  for (let v = 0; v <= maxY; v += step) ticks.push(v);
+
+  let g = "";
+  for (const v of ticks) {
+    g += `<line x1="${P.l}" x2="${W - P.r}" y1="${y(v)}" y2="${y(v)}" stroke="#221f1a" stroke-width="1"/>` +
+         `<text x="${P.l - 9}" y="${y(v) + 4}" font-size="10" fill="#6e685c" text-anchor="end">${v}</text>`;
+  }
+  daily.forEach((d, i) => {
+    if (i % 2 === 0) {
+      const dt = new Date(d.date + "T00:00:00");
+      g += `<text x="${x(i)}" y="${H - 8}" font-size="9.5" fill="#6e685c" text-anchor="middle">${dt.toLocaleDateString([], { month: "short", day: "numeric" })}</text>`;
+    }
+  });
+
+  g += `<path d="${area("leads")}" fill="rgba(74,131,194,.09)"/>`;
+  g += `<path d="${area("captured")}" fill="rgba(185,138,47,.10)"/>`;
+  g += `<path d="${line("leads")}" fill="none" stroke="#4a83c2" stroke-width="2" stroke-linejoin="round"/>`;
+  g += `<path d="${line("captured")}" fill="none" stroke="#b98a2f" stroke-width="2" stroke-linejoin="round"/>`;
+  g += `<line id="crosshair" y1="${P.t}" y2="${P.t + ih}" stroke="#3a362e" stroke-width="1" opacity="0"/>`;
+  g += `<g id="hover-dots" opacity="0">
+          <circle r="4" fill="#4a83c2" stroke="#171613" stroke-width="2" id="dot-leads"/>
+          <circle r="4" fill="#b98a2f" stroke="#171613" stroke-width="2" id="dot-captured"/>
+        </g>`;
+  svg.innerHTML = g;
+  chartState = { daily, x, y, P, W, H };
+}
+
+document.getElementById("flow-chart").addEventListener("mousemove", (ev) => {
+  if (!chartState) return;
+  const { daily, x, y, P, W } = chartState;
+  const rect = ev.currentTarget.getBoundingClientRect();
+  const scale = W / rect.width;
+  const mx = (ev.clientX - rect.left) * scale;
+  let idx = Math.round(((mx - P.l) / (W - P.l - P.r)) * (daily.length - 1));
+  idx = Math.max(0, Math.min(daily.length - 1, idx));
+  const d = daily[idx];
+
+  const cross = document.getElementById("crosshair");
+  cross.setAttribute("x1", x(idx)); cross.setAttribute("x2", x(idx));
+  cross.setAttribute("opacity", "1");
+  const dots = document.getElementById("hover-dots");
+  dots.setAttribute("opacity", "1");
+  document.getElementById("dot-leads").setAttribute("cx", x(idx));
+  document.getElementById("dot-leads").setAttribute("cy", y(d.leads));
+  document.getElementById("dot-captured").setAttribute("cx", x(idx));
+  document.getElementById("dot-captured").setAttribute("cy", y(d.captured));
+
+  const tip = document.getElementById("tooltip");
+  const dt = new Date(d.date + "T00:00:00");
+  tip.innerHTML = `<div class="t-date">${dt.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</div>
+    <div class="t-row"><span style="color:#9db9dd">New leads</span><b>${d.leads}</b></div>
+    <div class="t-row"><span style="color:#c9a96a">Captured</span><b>${d.captured}</b></div>`;
+  const boxRect = ev.currentTarget.parentElement.getBoundingClientRect();
+  let left = ((x(idx) / W) * rect.width) + 14;
+  if (left > boxRect.width - 170) left -= 190;
+  tip.style.left = left + "px";
+  tip.style.top = "30px";
+  tip.style.opacity = "1";
+});
+document.getElementById("flow-chart").addEventListener("mouseleave", () => {
+  document.getElementById("tooltip").style.opacity = "0";
+  const c = document.getElementById("crosshair"); if (c) c.setAttribute("opacity", "0");
+  const d = document.getElementById("hover-dots"); if (d) d.setAttribute("opacity", "0");
+});
+
+/* --------------------------------- funnel --------------------------------- */
+function renderFunnel(funnel) {
+  const el = document.getElementById("funnel");
+  const max = Math.max(1, ...STAGE_ORDER.map((s) => funnel[s] || 0));
+  el.innerHTML = STAGE_ORDER.map((s) => {
+    const n = funnel[s] || 0;
+    const w = Math.max(n ? 3 : 1, (n / max) * 100);
+    const cls = s === "human_review" ? "review" : s === "closed" ? "closed" : "";
+    return `<div class="funnel-row ${cls}" title="${STAGE_LABELS[s]}: ${n}">
+      <div class="name">${STAGE_LABELS[s]}</div>
+      <div class="bar-track"><div class="bar" style="width:${w}%; ${n === 0 ? "opacity:.18" : ""}"></div></div>
+      <div class="n">${n}</div>
+    </div>`;
+  }).join("");
+}
+
+/* --------------------------------- table ---------------------------------- */
+function renderTable(leads) {
+  const tbody = document.getElementById("lead-rows");
+  document.getElementById("lead-count").textContent = leads.length + " shown";
+  document.getElementById("empty-state").style.display = leads.length ? "none" : "block";
+  tbody.innerHTML = leads.map((l) => {
+    const intent = l.qualification && l.qualification.buy_or_sell;
+    const stageColor = STAGE_COLORS[l.stage] || "#6e685c";
+    return `<tr onclick="openDrawer('${l.id}')">
+      <td class="lead-name">${esc(l.displayName || l.username)}<div class="handle">@${esc(l.username)}</div></td>
+      <td>${intent ? `<span class="chip ${intent}">${intent}</span>` : `<span class="chip">—</span>`}</td>
+      <td><span class="badge"><span class="dot" style="background:${stageColor}"></span>${STAGE_LABELS[l.stage] || l.stage}</span></td>
+      <td>${l.hasContact ? `<span class="contact-yes">${esc(l.phone || l.email)}</span>` : `<span class="contact-no">pending</span>`}</td>
+      <td class="time">${relTime(l.createdAt)}</td>
+    </tr>`;
+  }).join("");
+}
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/* --------------------------------- drawer --------------------------------- */
+async function openDrawer(id) {
+  const res = await fetch(`/api/leads/${id}/conversation`);
+  if (!res.ok) return;
+  const data = await res.json();
+  document.getElementById("d-name").textContent = data.lead.displayName || data.lead.username;
+  document.getElementById("d-meta").textContent =
+    `@${data.lead.username} · ${STAGE_LABELS[data.lead.stage] || data.lead.stage}` +
+    (data.lead.phone ? ` · ${data.lead.phone}` : "");
+  document.getElementById("d-messages").innerHTML = data.messages.map((m) =>
+    `<div class="bubble ${m.role}">${esc(m.text)}<span class="src">${m.role === "assistant" ? (m.source === "manual_seed" ? "wesley · manual" : "concierge") : "lead"}</span></div>`
+  ).join("");
+  document.getElementById("drawer").classList.add("open");
+  document.getElementById("overlay").classList.add("show");
+}
+function closeDrawer() {
+  document.getElementById("drawer").classList.remove("open");
+  document.getElementById("overlay").classList.remove("show");
+}
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawer(); });
+
+refresh();
+setInterval(refresh, 15000);
+window.addEventListener("resize", () => { if (chartState) renderChart(chartState.daily); });
+</script>
+</body>
+</html>
