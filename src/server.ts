@@ -7,7 +7,7 @@ import { AnthropicLlm } from "./integrations/llm.js";
 import { NullHandoff, WebhookHandoff, retryPendingHandoffs } from "./integrations/handoff.js";
 import { ExampleStore } from "./voice/exampleStore.js";
 import { handleTikTokWebhook } from "./app/tiktokWebhook.js";
-import { getLeadConversation, getLeads, getMetrics } from "./api/dashboardApi.js";
+import { getLeadConversation, getLeads, getMetrics, getTestLeadState } from "./api/dashboardApi.js";
 import { createLogger } from "./observability/logger.js";
 import { seedDemoData } from "./demo/seed.js";
 import type { PipelineDeps } from "./app/dmPipeline.js";
@@ -100,6 +100,12 @@ async function main(): Promise<void> {
         return json(res, 200, await getLeads(store, Math.min(limit, 500)));
       }
 
+      if (route === "GET /api/testing/state") {
+        const user = url.searchParams.get("user") ?? "";
+        const state = await getTestLeadState(store, user);
+        return state ? json(res, 200, state) : json(res, 404, { error: "not_found" });
+      }
+
       const convoMatch = url.pathname.match(/^\/api\/leads\/([\w-]+)\/conversation$/);
       if (req.method === "GET" && convoMatch) {
         const convo = await getLeadConversation(store, convoMatch[1]!);
@@ -109,6 +115,9 @@ async function main(): Promise<void> {
       // Dashboard frontend.
       if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
         if (serveStatic(res, "index.html", "text/html; charset=utf-8")) return;
+      }
+      if (req.method === "GET" && url.pathname === "/testing") {
+        if (serveStatic(res, "testing.html", "text/html; charset=utf-8")) return;
       }
 
       json(res, 404, { error: "not_found" });

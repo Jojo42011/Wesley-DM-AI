@@ -33,6 +33,11 @@
   .brand .titles .sub { font-size: 11px; color: var(--text-3); text-transform: uppercase; letter-spacing: .12em; margin-top: 1px; }
   .status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-2); }
   .pulse { width: 7px; height: 7px; border-radius: 50%; background: #3a9c62; }
+  .test-btn {
+    display: inline-block; background: var(--green); color: #fff; text-decoration: none;
+    font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 6px;
+  }
+  .test-btn:hover { background: #2a5238; }
 
   /* ---------- KPI cards ---------- */
   .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
@@ -66,15 +71,6 @@
   #tooltip .t-date { color: var(--text-3); font-size: 11px; font-weight: 600; margin-bottom: 5px; }
   #tooltip .t-row { display: flex; justify-content: space-between; gap: 14px; padding: 1px 0; }
   #tooltip .t-row b { font-weight: 600; font-variant-numeric: tabular-nums; }
-
-  /* ---------- funnel ---------- */
-  .funnel-row { display: grid; grid-template-columns: 118px 1fr 30px; align-items: center; gap: 10px; padding: 5px 0; }
-  .funnel-row .name { font-size: 12px; color: var(--text-2); text-align: right; }
-  .funnel-row .bar-track { height: 12px; background: #f0f2f0; border-radius: 3px; }
-  .funnel-row .bar { height: 12px; border-radius: 3px; background: var(--green-mid); min-width: 2px; }
-  .funnel-row.review .bar { background: var(--red); }
-  .funnel-row.closed .bar { background: #b8bfb9; }
-  .funnel-row .n { font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
 
   /* ---------- leads panel (fixed height, internal scroll) ---------- */
   .leads-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
@@ -152,7 +148,10 @@
         <div class="sub">TikTok Lead Dashboard</div>
       </div>
     </div>
-    <div class="status"><span class="pulse"></span><span id="last-updated">connecting…</span></div>
+    <div style="display:flex;align-items:center;gap:16px">
+      <div class="status"><span class="pulse"></span><span id="last-updated">connecting…</span></div>
+      <a href="/testing" class="test-btn">Test the agent</a>
+    </div>
   </header>
 
   <section class="kpis" aria-label="Key metrics">
@@ -178,7 +177,7 @@
     </div>
   </section>
 
-  <section class="grid">
+  <section style="margin-bottom:12px">
     <div class="card">
       <div class="card-head">
         <h2>Lead flow — last 14 days</h2>
@@ -191,10 +190,6 @@
         <svg id="flow-chart" width="100%" height="250" role="img" aria-label="New leads and captured numbers per day, last 14 days"></svg>
         <div id="tooltip"></div>
       </div>
-    </div>
-    <div class="card">
-      <div class="card-head"><h2>Pipeline</h2></div>
-      <div id="funnel"></div>
     </div>
   </section>
 
@@ -237,8 +232,6 @@ const STAGE_LABELS = {
   qualification: "Qualifying", handoff_ready: "Handoff ready", follow_up_due: "Follow-up due",
   human_review: "Needs attention", closed: "Closed",
 };
-const STAGE_ORDER = ["new","clarification_pending","value_offered","contact_requested",
-  "contact_captured","handoff_ready","follow_up_due","human_review","closed"];
 const STAGE_COLORS = {
   new: "#8a938c", clarification_pending: "#64748b", value_offered: "#2e8b57",
   contact_requested: "#2e8b57", contact_captured: "#b98a2f", qualification: "#b98a2f",
@@ -267,7 +260,6 @@ async function refresh() {
     allLeads = leads;
     renderKpis(metrics);
     renderChart(metrics.daily);
-    renderFunnel(metrics.funnel);
     renderTable();
     const t = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     document.getElementById("last-updated").textContent = "live · updated " + t;
@@ -365,22 +357,6 @@ document.getElementById("flow-chart").addEventListener("mouseleave", () => {
   const c = document.getElementById("crosshair"); if (c) c.setAttribute("opacity", "0");
   const d = document.getElementById("hover-dots"); if (d) d.setAttribute("opacity", "0");
 });
-
-/* ------------------------------ funnel ------------------------------ */
-function renderFunnel(funnel) {
-  const el = document.getElementById("funnel");
-  const max = Math.max(1, ...STAGE_ORDER.map((s) => funnel[s] || 0));
-  el.innerHTML = STAGE_ORDER.map((s) => {
-    const n = funnel[s] || 0;
-    const w = Math.max(n ? 3 : 0, (n / max) * 100);
-    const cls = s === "human_review" ? "review" : s === "closed" ? "closed" : "";
-    return `<div class="funnel-row ${cls}" title="${STAGE_LABELS[s]}: ${n}">
-      <div class="name">${STAGE_LABELS[s]}</div>
-      <div class="bar-track">${n ? `<div class="bar" style="width:${w}%"></div>` : ""}</div>
-      <div class="n">${n}</div>
-    </div>`;
-  }).join("");
-}
 
 /* ------------------------------ table ------------------------------ */
 function renderTable() {

@@ -7,6 +7,13 @@ import { ConversationStage } from "../domain/types.js";
  * surface, not a data-export tool.
  */
 
+/** Leads created from the /testing console — hidden from dashboard metrics. */
+export const TEST_LEAD_PREFIX = "dmtest_";
+
+function isTestLead(externalUserId: string): boolean {
+  return externalUserId.startsWith(TEST_LEAD_PREFIX);
+}
+
 function maskPhone(phone: string | null): string | null {
   if (!phone) return null;
   return phone.length > 4 ? `•••• ${phone.slice(-4)}` : phone;
@@ -20,8 +27,8 @@ function maskEmail(email: string | null): string | null {
 }
 
 export async function getMetrics(store: Store): Promise<Record<string, unknown>> {
-  const leads = await store.leads.list(2000, 0);
-  const msgCounts = await store.conversations.countMessages();
+  const leads = (await store.leads.list(2000, 0)).filter((l) => !isTestLead(l.externalUserId));
+  const msgCounts = await store.conversations.countMessages(TEST_LEAD_PREFIX);
 
   const totalLeads = leads.length;
   const captured = leads.filter((l) => l.phone || l.email);
@@ -78,7 +85,7 @@ export async function getMetrics(store: Store): Promise<Record<string, unknown>>
 }
 
 export async function getLeads(store: Store, limit = 100): Promise<unknown[]> {
-  const leads = await store.leads.list(limit, 0);
+  const leads = (await store.leads.list(limit, 0)).filter((l) => !isTestLead(l.externalUserId));
   return leads.map((l) => ({
     id: l.id,
     username: l.username ?? l.externalUserId,
@@ -92,6 +99,27 @@ export async function getLeads(store: Store, limit = 100): Promise<unknown[]> {
     createdAt: l.createdAt,
     lastInboundAt: l.lastInboundAt,
   }));
+}
+
+/**
+ * State of a test-console lead (unmasked stage/contact so the tester can see
+ * exactly what the pipeline captured). Only serves dmtest_ leads.
+ */
+export async function getTestLeadState(
+  store: Store,
+  externalUserId: string,
+): Promise<unknown | null> {
+  if (!isTestLead(externalUserId)) return null;
+  const lead = await store.leads.findByExternalId("tiktok", externalUserId);
+  if (!lead) return null;
+  return {
+    leadId: lead.id,
+    stage: lead.stage,
+    phone: lead.phone,
+    email: lead.email,
+    optedOut: lead.optedOut,
+    qualification: lead.qualification,
+  };
 }
 
 export async function getLeadConversation(

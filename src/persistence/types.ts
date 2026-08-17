@@ -26,7 +26,8 @@ export interface ConversationRepository {
   recordContactCapture(leadId: string, record: ContactCaptureRecord): Promise<void>;
   getContactCaptures(leadId: string): Promise<ContactCaptureRecord[]>;
   recordOptOut(event: OptOutEvent): Promise<void>;
-  countMessages(): Promise<{ user: number; assistant: number }>;
+  /** Message totals; leads whose externalUserId starts with excludeLeadPrefix are skipped. */
+  countMessages(excludeLeadPrefix?: string): Promise<{ user: number; assistant: number }>;
 }
 
 export interface IdempotencyRepository {

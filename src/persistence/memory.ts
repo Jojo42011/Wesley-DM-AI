@@ -105,10 +105,19 @@ export class MemoryStore implements Store {
       async recordOptOut(event) {
         self.optOuts.push({ ...event });
       },
-      async countMessages() {
+      async countMessages(excludeLeadPrefix?: string) {
+        let excluded: Set<string> | null = null;
+        if (excludeLeadPrefix) {
+          excluded = new Set(
+            [...self.leadRows.values()]
+              .filter((l) => l.externalUserId.startsWith(excludeLeadPrefix))
+              .map((l) => l.id),
+          );
+        }
         let user = 0;
         let assistant = 0;
         for (const m of self.messageRows) {
+          if (excluded?.has(m.leadId)) continue;
           if (m.role === "user") user++;
           else assistant++;
         }

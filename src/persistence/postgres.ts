@@ -251,10 +251,15 @@ export class PostgresStore implements Store {
           [event.leadId, event.messageText, event.occurredAt],
         );
       },
-      async countMessages() {
-        const res = await q(
-          "SELECT role, COUNT(*)::int AS n FROM messages GROUP BY role",
-        );
+      async countMessages(excludeLeadPrefix?: string) {
+        const res = excludeLeadPrefix
+          ? await q(
+              `SELECT m.role, COUNT(*)::int AS n FROM messages m
+               JOIN leads l ON l.id = m.lead_id
+               WHERE l.external_user_id NOT LIKE $1 GROUP BY m.role`,
+              [`${excludeLeadPrefix.replace(/[\\%_]/g, "\\$&")}%`],
+            )
+          : await q("SELECT role, COUNT(*)::int AS n FROM messages GROUP BY role");
         let user = 0;
         let assistant = 0;
         for (const r of res.rows) {
