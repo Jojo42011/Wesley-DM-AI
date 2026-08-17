@@ -133,7 +133,7 @@ async function main(): Promise<void> {
   server.listen(PORT, () => {
     logger.log("server_started", {
       port: PORT,
-      store: process.env.DATABASE_URL ? "postgres" : "memory",
+      store: process.env.STORE === "memory" ? "memory" : "sqlite",
       demoMode: process.env.DEMO_MODE === "1",
     });
   });

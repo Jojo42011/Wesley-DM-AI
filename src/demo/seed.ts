@@ -6,8 +6,7 @@ import { DEFAULT_CAMPAIGN_KEY } from "../config/campaigns.js";
 
 /**
  * Demo data seeding (DEMO_MODE=1) so the dashboard is reviewable before
- * real traffic flows. Never runs when DATABASE_URL points at production
- * unless explicitly requested.
+ * real traffic flows. Skips seeding when any leads already exist.
  */
 
 const NAMES: Array<[string, string]> = [

@@ -3,25 +3,28 @@
 Production-grade TikTok DM automation for Wesley (realtor). Inbound TikTok DMs
 arrive via **ManyChat**, the engine understands the conversation, replies in
 Wesley's voice, and deterministically captures **phone numbers** — then hands
-leads off to the CRM. A premium dashboard shows every metric and lead live.
+leads off to the CRM. A clean dashboard shows every metric and lead live.
 
 ```
 TikTok DM → ManyChat → POST /webhook/tiktok → pipeline → { "reply": "..." } → ManyChat sends it
-                                          ↘ Postgres  ↘ CRM handoff  ↘ /  (dashboard)
+                                          ↘ SQLite   ↘ CRM handoff  ↘ /  (dashboard) ↘ /testing
 ```
 
 ## Quick start
 
 ```bash
 npm install
-cp .env.example .env          # add ANTHROPIC_API_KEY (+ DATABASE_URL for prod)
-DEMO_MODE=1 npm run dev       # boots on :3000 with demo data
-open http://localhost:3000    # the Lead Desk dashboard
-npm test                      # 42 tests, all deterministic (no network)
+cp .env.example .env          # add ANTHROPIC_API_KEY
+DEMO_MODE=1 npm run dev       # boots on :3000 with demo data (./data/wesley.db)
+open http://localhost:3000    # the dashboard; /testing simulates fresh leads
+npm test                      # tests, all deterministic (no network)
 ```
 
-Without `DATABASE_URL` the server uses an in-memory store (dev/tests only —
-production **requires** PostgreSQL and will refuse to boot without it).
+Storage is **SQLite** at `SQLITE_PATH` (default `./data/wesley.db`; on Fly a
+mounted volume at `/data/wesley.db`). No external database needed. The app
+runs as a single always-on machine — SQLite is single-writer, which matches
+the per-conversation lock design. `STORE=memory` gives an ephemeral store for
+tests and throwaway runs (refused in production).
 
 ## ManyChat webhook contract
 
@@ -114,7 +117,7 @@ hard-coded in the engine). Placeholders are marked `[WESLEY: ...]`:
 
 ## Environment variables
 
-See `.env.example`. Key ones: `ANTHROPIC_API_KEY`, `DATABASE_URL`,
+See `.env.example`. Key ones: `ANTHROPIC_API_KEY`, `SQLITE_PATH`,
 `ANTHROPIC_MODEL` (default `claude-haiku-4-5`), `HANDOFF_WEBHOOK_URL`,
 `DEMO_MODE`, `PORT`.
 
@@ -127,7 +130,7 @@ src/
   modules/      intent gate, opener seeding, contact capture, closeout, qualification
   voice/        example store/retrieval, screenshot ingestion
   integrations/ ManyChat adapter, Anthropic client, CRM handoff
-  persistence/  Postgres + in-memory stores, idempotency, handoff jobs
+  persistence/  SQLite + in-memory stores, idempotency, handoff jobs
   api/          dashboard metrics/lead APIs
   config/       campaign policy, voice profile
 public/         the Lead Desk dashboard

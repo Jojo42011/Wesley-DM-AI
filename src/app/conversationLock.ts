@@ -2,8 +2,8 @@
  * In-process per-key mutex. Callers for the same key queue in FIFO order —
  * a second distinct message is never dropped, it waits for the current turn.
  *
- * For multi-instance deployments the Postgres store additionally takes a
- * pg advisory lock inside this local queue, so instances serialize too.
+ * The app runs as a single instance (SQLite on a volume), so this in-process
+ * queue is the full concurrency story.
  */
 export class KeyedMutex {
   private tails = new Map<string, Promise<unknown>>();

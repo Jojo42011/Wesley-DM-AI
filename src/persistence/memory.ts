@@ -16,7 +16,7 @@ import type {
 
 /**
  * In-memory store. FOR TESTS AND LOCAL DEVELOPMENT ONLY — production uses
- * the Postgres store (set DATABASE_URL).
+ * the SQLite store on a persistent volume (SQLITE_PATH).
  */
 export class MemoryStore implements Store {
   leads: LeadRepository;
