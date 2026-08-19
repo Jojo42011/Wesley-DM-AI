@@ -5,20 +5,21 @@
  */
 
 const OPT_OUT_PATTERNS = [
-  /\bstop\b(?!\s+by)/i,
   /\bunsubscribe\b/i,
   /\bdo\s*n[o']?t\s+(contact|message|text|dm)\s+me\b/i,
   /\bleave\s+me\s+alone\b/i,
-  /\bstop\s+(messaging|texting|dm+ing)\b/i,
+  // "stop" only when aimed at the messaging itself — never "stop renting",
+  // "stop by", "can't stop looking", etc.
+  /\bstop\s+(messaging|texting|dm+ing|contacting|following)\b/i,
   /\bremove\s+me\b/i,
   /\bopt\s*out\b/i,
 ];
 
 export function isOptOut(text: string): boolean {
   const t = text.trim();
-  // "stop" alone or clearly directed; avoid matching "can't stop looking at homes"
+  // Bare "stop" (the universal opt-out keyword) on its own message.
   if (/^stop\.?!?$/i.test(t)) return true;
-  return OPT_OUT_PATTERNS.some((re) => re.test(t)) && !/stop looking|stop searching|can't stop|cant stop/i.test(t);
+  return OPT_OUT_PATTERNS.some((re) => re.test(t));
 }
 
 const ACK_PATTERNS = [
