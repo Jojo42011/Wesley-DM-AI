@@ -23,3 +23,14 @@ describe("opt-out detection", () => {
     expect(isOptOut("my landlord wants us out, need to stop leasing")).toBe(false);
   });
 });
+
+import { extractQualificationSignals } from "../src/modules/qualification.js";
+import { makeLead } from "./helpers.js";
+
+describe("qualification intent", () => {
+  it("reads 'stop renting' as buy intent, not rent", () => {
+    expect(extractQualificationSignals(makeLead(), "we wanna stop renting fr").buy_or_sell).toBe("buy");
+    expect(extractQualificationSignals(makeLead(), "tired of paying rent every month").buy_or_sell).toBe("buy");
+    expect(extractQualificationSignals(makeLead(), "looking to rent a place downtown").buy_or_sell).toBe("rent");
+  });
+});

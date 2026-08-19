@@ -13,7 +13,10 @@ export function extractQualificationSignals(
   const t = messageText.toLowerCase();
 
   if (!q.buy_or_sell) {
-    if (/\b(buy|buying|purchase|first home|first house|looking for a (home|house|place))\b/.test(t)) {
+    if (
+      /\b(buy|buying|purchase|first home|first house|looking for a (home|house|place))\b/.test(t) ||
+      /\b(stop|done|tired of|sick of) (renting|leasing|paying rent)\b/.test(t)
+    ) {
       q.buy_or_sell = "buy";
     } else if (/\b(sell|selling|list my|listing my)\b/.test(t)) {
       q.buy_or_sell = "sell";
