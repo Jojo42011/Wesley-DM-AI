@@ -24,6 +24,23 @@ const ASSISTANT_PHRASES = [
   /\bautomated (message|response)\b/i,
 ];
 
+/**
+ * Wesley never texts with hyphens or em dashes. Model drafts love them, so
+ * every reply is rewritten dash-free before any other check:
+ *  - em/en dashes become a comma pause (or period between sentences)
+ *  - spaced " - " separators become a comma pause
+ *  - letter-to-letter hyphens open into a space (pre-approval → pre approval)
+ * Digits are untouched so numbers are never mangled.
+ */
+export function enforceStyle(text: string): string {
+  let out = text;
+  out = out.replace(/\s*[—–]\s*/g, ", ");
+  out = out.replace(/(\S)\s+-\s+(\S)/g, "$1, $2");
+  out = out.replace(/(\p{L})-(\p{L})/gu, "$1 $2");
+  out = out.replace(/,\s*,/g, ", ").replace(/\s+([,.!?])/g, "$1");
+  return out;
+}
+
 const ASKS_FOR_PHONE = /\b(what'?s|send|drop|share|give me|can i get)\b.{0,30}\b(number|phone|digits)\b/i;
 const ASKS_FOR_EMAIL = /\b(what'?s|send|drop|share|give me|can i get)\b.{0,30}\b(e-?mail)\b/i;
 
@@ -52,6 +69,9 @@ export function validateReply(
   if (!reply) {
     return { ok: false, reply: "", reasons: ["empty_reply"] };
   }
+
+  // Wesley's style: no hyphens, no em dashes, ever.
+  reply = enforceStyle(reply);
 
   // Character and sentence limits (enforce, don't just reject, when close).
   if (reply.length > policy.maxReplyCharacters * 1.5) {
