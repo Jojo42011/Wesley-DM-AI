@@ -49,6 +49,12 @@ export function deterministicGate(message: string): GateDecision | null {
   if (SPAM_PATTERNS.some((re) => re.test(t))) {
     return { action: "reject", reason: "spam_or_solicitation" };
   }
+  // Wesley's funnel: leads open with a bare video keyword ("SUNSET",
+  // "ELEVATOR", "lazy river"). Short non-spam messages are always real.
+  const words = t.split(/\s+/);
+  if (t.length <= 24 && words.length <= 3) {
+    return { action: "accept", reason: "keyword_trigger" };
+  }
   return null; // ambiguous → classifier
 }
 

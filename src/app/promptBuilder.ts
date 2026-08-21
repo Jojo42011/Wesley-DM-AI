@@ -94,6 +94,7 @@ export function buildSystemPrompt(inputs: PromptInputs): string {
 
   const turnRules = [
     "== TURN_RULES ==",
+    "FACTS YOU MAY NOT USE: You do not know this property's price, address, city, neighborhood, size, or features, and the conversation may reference homes you have no data on. Never state or guess any of these. If asked, keep it brief and say it will be in the full breakdown you text over.",
     `Current stage: ${lead.stage}`,
     `Captured fields: ${inputs.capturedFields.length ? inputs.capturedFields.join(", ") : "none"}`,
     `Person sentiment: ${preflight.sentiment}`,

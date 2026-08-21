@@ -58,3 +58,40 @@ describe("shipped Wesley voice data (from the 55 real conversations)", () => {
     }
   });
 });
+
+import { runIntentGate } from "../src/modules/intentGate.js";
+import { buildSystemPrompt } from "../src/app/promptBuilder.js";
+import { WESLEY_VOICE_PROFILE } from "../src/config/wesleyVoice.js";
+import { FakeLlm } from "../src/integrations/llm.js";
+import { makeLead } from "./helpers.js";
+
+describe("keyword leads and unknown property facts", () => {
+  it("bare video keywords always pass the intent gate, even with no classifier", async () => {
+    const llm = new FakeLlm(); // returns null → classifier unavailable
+    for (const kw of ["LAZY RIVER", "sunset", "Elevator", "koi pond"]) {
+      const gate = await runIntentGate(llm, WESLEY_REALTOR_LEADS, kw);
+      expect(gate.action).toBe("accept");
+    }
+    expect(llm.calls.length).toBe(0); // deterministic, no model needed
+  });
+
+  it("the prompt forbids inventing property facts", () => {
+    const system = buildSystemPrompt({
+      policy: WESLEY_REALTOR_LEADS,
+      voiceProfile: WESLEY_VOICE_PROFILE,
+      examples: [],
+      lead: makeLead(),
+      messages: [],
+      latestUserMessage: "how much is that house and where is it",
+      wesleyPreviousOutbound: null,
+      preflight: {
+        userRepeated: false, wesleyRepeated: false, sentiment: "neutral",
+        unansweredQuestions: [], closedTopics: [], nextObjective: "answer",
+        coachingNote: "", shouldReply: true, shouldEscalate: false,
+      },
+      capturedFields: [],
+    });
+    expect(system).toContain("FACTS YOU MAY NOT USE");
+    expect(system).toContain("Never state or guess");
+  });
+});
