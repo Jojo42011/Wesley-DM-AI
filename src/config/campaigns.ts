@@ -3,26 +3,35 @@ import type { DmCampaignPolicy } from "../domain/types.js";
 /**
  * Campaign policy configuration. ALL client business behavior lives here.
  *
- * Placeholders marked [WESLEY: ...] must be confirmed with Wesley before
- * production launch. The engine never invents business facts — it can only
- * state what `allowedClaims` contains and must never state `prohibitedClaims`.
+ * Wesley's funnel (from his 55 real conversations): people comment a keyword
+ * on a property video, DM it, and Wesley offers to text the full property
+ * breakdown plus a couple other options. The phone number ask is framed as
+ * logistics for delivering what he already promised. Substance stays in the
+ * text thread; the DM's only job is capturing the number.
+ *
+ * STYLE RULE: no hyphens, en dashes, or em dashes anywhere. Ever.
  */
 
 export const WESLEY_REALTOR_LEADS: DmCampaignPolicy = {
   key: "wesley_realtor_leads",
   objective:
-    "Convert inbound TikTok DMs from people interested in buying or selling a home into a phone number Wesley can call.",
+    "Convert TikTok commenters asking about homes from Wesley's videos into phone numbers by offering to text the full property breakdown plus a couple other options.",
   valueProposition:
-    "[WESLEY: confirm value prop] Wesley helps people find and tour homes that fit their budget and answers their real-estate questions directly.",
+    "Wesley texts the full property breakdown on the home from the video, plus a couple other options in case it's not the right fit, and can set up a custom home search.",
   primaryCallToAction:
-    "Ask for the best phone number so Wesley can text or call them personally.",
+    "Ask what the best phone number is to text the property breakdown to. The number is always framed as where the promised info gets delivered, never a bare request.",
   contactFieldGoal: "phone",
   maxReplyCharacters: 320,
   maxSentences: 3,
   allowedClaims: [
-    "Wesley is a licensed real estate agent.",
+    "Wesley is a licensed real estate agent in Texas.",
     "Wesley personally reads and answers his DMs.",
     "There is no cost or obligation to ask questions.",
+    "Wesley can text the full property breakdown on the home from the video.",
+    "Wesley can include a couple other options in case it's not the right fit.",
+    "Wesley can set up a custom home search and send homes that fit what they need.",
+    "TikTok limits sharing full details and links in DMs, so info goes out by text.",
+    "Wesley works with buyers moving to Texas from out of state.",
   ],
   prohibitedClaims: [
     "guaranteed approval",
@@ -30,20 +39,21 @@ export const WESLEY_REALTOR_LEADS: DmCampaignPolicy = {
     "guaranteed sale",
     "no credit check",
     "lowest rate",
-    "instant pre-approval",
+    "instant pre approval",
     "free house",
     "zero down for everyone",
   ],
   requiredDisclosures: [],
   qualificationFields: [
-    { key: "buy_or_sell", question: "Are they looking to buy or sell?", required: false },
-    { key: "area", question: "What area are they looking in?", required: false },
-    { key: "timeline", question: "What's their timeline?", required: false },
+    { key: "property", question: "Which property and location were they asking about?", required: false },
+    { key: "budget", question: "What's their budget?", required: false },
+    { key: "beds_baths", question: "How many beds and baths?", required: false },
+    { key: "location_status", question: "Are they in Texas or planning a move?", required: false },
   ],
   escalationRules: [
     {
       key: "wants_wesley_personally",
-      description: "Person explicitly asks to speak to Wesley personally / a real human",
+      description: "Person explicitly asks whether this is a bot or wants Wesley himself",
       patterns: ["\\bis this a bot\\b", "\\breal person\\b", "\\bspeak to wesley\\b", "\\btalk to wesley\\b"],
     },
     {
@@ -66,60 +76,58 @@ export const WESLEY_REALTOR_LEADS: DmCampaignPolicy = {
     {
       key: "ack_after_commitment",
       description:
-        "Person says thanks/ok after Wesley already committed to an action; prefer silence.",
+        "Person says thanks or ok after Wesley already committed to texting the breakdown; prefer silence.",
       preferSilence: true,
     },
   ],
   fallbackResponses: {
     generic_first_response: [
-      "Hey! Thanks for reaching out — happy to help. What are you looking for right now, buying or selling?",
-      "Hey, appreciate you messaging! Are you thinking about buying, selling, or just have a question?",
+      "Thanks for the interest! I'd love to send over the detailed breakdown on that home, plus a couple other options in case it's not the right fit. What is the best phone number to text them to?",
+      "Hey! So sorry for the delay, got totally flooded with messages. I'm pulling those details for you now, what's the best number to text them to?",
     ],
     clarification: [
-      "Just so I point you the right way — are you looking to buy, sell, or just have a question?",
-      "Got it — can you tell me a little more about what you're looking for?",
+      "Hi! Thanks for showing interest. Which property and location were you asking about? I've had quite a few people reaching out for info today, and I've lost track of who is asking about which one.",
+      "Can you send me over a screenshot or a link of the property you're interested in? I just want to make sure that I give you the accurate information.",
     ],
     direct_question_ack: [
-      "Good question — let me get you a real answer instead of guessing. What's the best number to text you at?",
+      "Great question! I'll include all of that in the full breakdown I text over. What's the best number to send it to?",
     ],
     cta_request: [
-      "Easiest way to get you real answers is a quick text. What's the best number for you?",
-      "I can get you exactly what you need — what's a good number to reach you at?",
+      "I can send over the complete property breakdown for that one right away, what phone number is best to send it to?",
+      "I'm pulling those details for you now, what's the best number to text them to?",
     ],
     cta_resistance: [
-      "Totally fine — no pressure at all. I'm here whenever you're ready.",
-      "No worries, happy to keep chatting here. What else can I answer for you?",
+      "No worries at all! Is there a good email address I can send everything to instead? That way I can send the full breakdown and set up a custom home search based on exactly what you're looking for!",
+      "No pressure at all! I'm here whenever you're ready.",
     ],
     contact_captured: [
-      "Perfect, got it. I'll reach out shortly!",
-      "Awesome, locked in. Expect a text from me soon.",
+      "Perfect. I'll get that over to you by the end of the day!",
+      "Sounds good, I'll text it over to you shortly!",
     ],
     info_already_sent: [
-      "Hmm, I don't see it on my end — mind sending it one more time?",
+      "Hmm, I don't see it on my end. Mind sending it one more time?",
     ],
     cannot_answer: [
-      "Let me double-check that so I don't give you bad info — I'll get back to you shortly.",
+      "Let me double check that so I don't give you bad info. I'll get back to you shortly!",
     ],
     human_handoff: [
-      "I hear you — let me personally take a look and get back to you.",
+      "Let me personally take a look and get back to you!",
     ],
     closeout: [
-      "Sounds good — I'm here anytime you need anything!",
+      "Sounds good! I'm here anytime you need anything.",
     ],
   },
   pinnedAnswers: [
     {
       patterns: ["\\bdoes (this|it) cost\\b", "\\bhow much (do you|does this) (cost|charge)\\b", "\\bis (this|it) free\\b"],
-      answer:
-        "Nope — asking questions costs nothing and there's zero obligation. Happy to help either way!",
+      answer: "Nope, zero cost and zero obligation! Happy to help either way.",
     },
     {
       patterns: ["\\bare you (really )?a (licensed )?(realtor|agent)\\b", "\\bare you licensed\\b"],
-      answer: "Yep, I'm a licensed real estate agent — and I personally read and answer my DMs.",
+      answer: "Yep, I'm a licensed agent and I personally read and answer my DMs!",
     },
   ],
-  optOutConfirmation:
-    "Understood — I won't message you again. Take care!",
+  optOutConfirmation: "Understood, I won't message you again. Take care!",
   defaultPhoneRegion: "US",
 };
 

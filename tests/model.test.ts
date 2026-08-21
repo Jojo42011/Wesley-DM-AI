@@ -68,7 +68,8 @@ describe("model reply pathway", () => {
       deps,
       makeEvent({ message: "yo how do pre approvals even work lol" }),
     );
-    expect(outcome.reply).toContain("Pre-approval");
+    // Note: the style layer strips the hyphen from the model's "Pre-approval".
+    expect(outcome.reply).toContain("Pre approval");
     // The engine instructs the model to answer the question before any CTA.
     expect(genPrompt).toContain("Never ignore a direct question to force the CTA");
     expect(genPrompt).toContain("How do pre-approvals work?");
