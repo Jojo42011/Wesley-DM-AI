@@ -1,20 +1,23 @@
 # Wesley DM AI — TikTok Lead Concierge
 
 Production-grade TikTok DM automation for Wesley (realtor). Inbound TikTok DMs
-arrive via **ManyChat**, the engine understands the conversation, replies in
-Wesley's voice, and deterministically captures **phone numbers** — then hands
-leads off to the CRM. A clean dashboard shows every metric and lead live.
+reach the engine over a pluggable transport; it understands the conversation,
+replies in Wesley's learned voice, and deterministically captures **phone
+numbers** — then hands leads off to the CRM. A clean dashboard shows every
+metric and lead live.
 
 ```
-TikTok DM → respond.io → POST /webhook/respondio → pipeline → reply
-                                                      ↓          ↓
-                              SQLite / CRM handoff    respond.io Developer API → TikTok
+TikTok DM → [transport] → POST /webhook/tiktok → pipeline → { "reply": "..." }
+                                                    ↓
+                                     SQLite / CRM handoff / dashboard
 ```
 
-**respond.io is transport only.** It is the TikTok inbox and the delivery
-channel. The brain (voice, intent gate, funnel, phone extraction, CRM
-handoff) stays in this backend and is unchanged. Nothing is rebuilt or
-retrained inside respond.io.
+**The transport is pluggable and currently unwired.** The brain (voice,
+intent gate, funnel, phone extraction, CRM handoff) is transport agnostic
+and complete. The plan is to connect **TikTok's Business Messaging API
+directly** once access is approved; until then `POST /webhook/tiktok`
+accepts the simple JSON contract below, which is what the `/testing`
+console uses.
 
 ## Quick start
 
@@ -32,71 +35,31 @@ runs as a single always-on machine — SQLite is single-writer, which matches
 the per-conversation lock design. `STORE=memory` gives an ephemeral store for
 tests and throwaway runs (refused in production).
 
-## respond.io transport (production)
+## Transport: direct TikTok Business Messaging (planned)
 
-`POST /webhook/respondio` — point respond.io's **New Incoming Message**
-webhook here. Optionally append `?secret=...` (or send `X-Webhook-Secret`)
-and set `RESPONDIO_WEBHOOK_SECRET` to reject anything else.
+The integration target is TikTok's Business Messaging API, applied for
+directly rather than through a third party inbox. When access is granted,
+the work is confined to one adapter plus one route:
 
-**Acknowledges immediately.** respond.io times a webhook out at 5 seconds
-and disables an endpoint after 30 errors in 30 minutes, so the request is
-answered with 200 right away and the turn runs behind it. The reply goes out
-over the API, not in this response, so nothing is lost by returning early.
+1. Verify TikTok's webhook signature and answer the callback fast.
+2. Map TikTok's payload to `InboundEvent` (stable user id, text, provider
+   message id) — the same shape the pipeline already consumes.
+3. Drop echoes of the business account's own messages.
+4. Call `processInboundEvent` unchanged.
+5. Deliver `outcome.reply` through TikTok's send endpoint.
 
-What the handler does, in order:
+Everything else — dedupe, per-conversation locking, guards, voice,
+extraction, handoff, dashboard — already exists and does not change.
 
-1. **Verifies the request.** Set `RESPONDIO_SIGNING_KEY` and the
-   `X-Webhook-Signature` header is checked as
-   base64(HMAC-SHA256(key, body)), constant-time. Both the raw body and a
-   re-stringified form are accepted, because respond.io's own Node and
-   Python samples differ. `RESPONDIO_WEBHOOK_SECRET` is the simpler
-   alternative (`?secret=` or `X-Webhook-Secret`).
-2. **Filters to Wesley's TikTok channels.** The channel `source`
-   (`tiktok_business`) is authoritative, so every TikTok channel on the
-   space works, including ones connected later; ids are cached from
-   `GET /space/channel` and refreshed when an unknown id appears. Pin
-   specific ids with `RESPONDIO_TIKTOK_CHANNEL_ID` (comma separated) to
-   restrict further. Everything else returns 200 and is ignored.
-3. **Handles outbound echoes without replying.** Outbound is detected from
-   `message.traffic`, the event type, and `sender.source` (anything other
-   than `contact` — `user`, `api`, `ai_agent`, `workflow`, `broadcast`,
-   `echo` — is us, not the lead). Those messages are *recorded* as assistant
-   turns rather than dropped, which is how Wesley's manual opener is
-   preserved: when the lead answers, the agent already has his exact words
-   and continues the thread instead of restarting it. Echoes of our own
-   delivered replies are matched by similarity and never double-recorded.
-   If no outbound webhook ever arrived (the DM predates the integration),
-   the opener is recovered from
-   `GET /contact/id:<id>/message/list` on the lead's first turn.
-4. **Deduplicates** on the respond.io message id (`respondio:<messageId>`)
-   through the existing durable idempotency table.
-5. **Runs the unchanged pipeline** — intent gate, deterministic guards,
-   voice generation, phone extraction, CRM handoff.
-6. **Delivers the reply** with `POST /contact/id:<contactId>/message`,
-   retrying 429/5xx with exponential backoff.
-7. **Retry protection**: delivery retries 429, 449 ("in queue") and 5xx with
-   exponential backoff. If the turn throws before a reply exists, the
-   idempotency claim is released so the same message can be reprocessed
-   instead of being swallowed as a duplicate.
+Two constraints to design around, from TikTok's own rules: business
+initiated conversations are not permitted (every turn must answer an
+inbound DM, which is exactly how this pipeline behaves), and DM API access
+is unavailable to EEA, Switzerland and UK accounts.
 
-Identity: the respond.io **contact id** is the stable key
-(`respondio:<id>`), so a TikTok username change never splits a lead.
+## Current webhook contract
 
-Verified endpoints (live, 2026-09):
-
-```
-GET  https://api.respond.io/v2/space/channel
-     -> {"items":[{"id":551174,"name":"TikTok Business messaging",
-                   "source":"tiktok_business"}]}
-POST https://api.respond.io/v2/contact/id:<contactId>/message
-     Authorization: Bearer $RESPONDIO_API_TOKEN
-     {"message":{"type":"text","text":"..."},"channelId":551174}
-```
-
-## ManyChat webhook contract (legacy / simulator)
-
-Kept so the `/testing` console can drive the pipeline without sending real
-messages. Not used by production traffic.
+`POST /webhook/tiktok` — the generic transport entry point. It drives the
+`/testing` console today and is what a transport adapter will call.
 
 `POST /webhook/tiktok`
 
@@ -118,19 +81,20 @@ Response: `{ "reply": "single message to send" }` or `{ "reply": null }` for
 intentional silence (HTTP 200 either way).
 
 Notes:
-- `marco_previous_outbound` is accepted as a **temporary migration alias** and
-  normalized immediately; the legacy name never reaches domain logic.
-- Unresolved ManyChat tokens (`{{...}}`) in **identity** fields → HTTP 400.
-  Braces typed by a real person in the message body are always allowed.
-- Prefer a stable subscriber ID in `user_id`; username changes are tracked as
-  aliases so a rename never creates a duplicate lead.
+- Prefer a stable id in `user_id`; username changes are tracked as aliases so
+  a rename never creates a duplicate lead.
+- Unresolved `{{...}}` template tokens in **identity** fields are rejected
+  with HTTP 400. Braces typed by a real person in the message body are always
+  allowed.
+- `wesley_previous_outbound` seeds a manual opener exactly once, so the agent
+  continues Wesley's thread instead of reintroducing itself.
 
 ## How a turn is processed
 
 1. Echo events ignored; durable **idempotency** (provider message ID, or a
    bounded fallback key) — a duplicate never gets a second reply.
-2. Per-conversation **lock** (FIFO in-process + pg advisory lock): rapid
-   distinct messages are serialized, never dropped.
+2. Per-conversation **lock** (in-process FIFO queue): rapid distinct messages
+   are serialized, never dropped.
 3. Lead loaded/created. New cold leads pass an **intent gate** (deterministic
    spam/denial/safety exclusions first, low-cost classifier for ambiguity —
    low confidence never discards a real person).
@@ -166,12 +130,15 @@ APIs: `GET /api/metrics`, `GET /api/leads`, `GET /api/leads/:id/conversation`,
 `src/voice/` contains the screenshot ingestion pipeline (transcribe → attribute
 → **redact** → split → tag → **human approve**). Only approved, PII-clean
 examples are ever retrieved (3–8 per turn, matched by stage/sentiment/intent).
-The starter profile in `src/config/wesleyVoice.ts` is conservative — the
-system has **not** learned Wesley's voice until his 50 screenshots are
-ingested, approved, and evaluated against held-out conversations.
 
-Drop approved examples at `data/voice-examples.json` (or set
-`VOICE_EXAMPLES_PATH`).
+**Wesley's voice is trained.** 55 real TikTok conversations were transcribed,
+redacted and tagged into the 76 examples shipped at
+`data/voice-examples.json` (override with `VOICE_EXAMPLES_PATH`), and
+`src/config/wesleyVoice.ts` is derived from them: his scripted openers, the
+number ask framed as delivery logistics, exclamation-first greetings, dropped
+closing punctuation, near-zero emoji, and one graceful alternative before
+accepting a no. **He never uses hyphens or em dashes**, which the reply
+sanitizer enforces on every generated message.
 
 ## Configuration Wesley must confirm before launch
 
@@ -183,7 +150,7 @@ hard-coded in the engine). Placeholders are marked `[WESLEY: ...]`:
 - Facts the bot may state / claims it must never make
 - Escalation conditions, approved fallback wording, working hours
 - Consent & opt-out requirements for his jurisdiction
-- The 50 screenshot conversations (with consent) + a held-out eval set
+- A held-out set of real conversations for evaluation
 
 ## Environment variables
 
@@ -199,7 +166,7 @@ src/
   domain/       types, stages, transitions
   modules/      intent gate, opener seeding, contact capture, closeout, qualification
   voice/        example store/retrieval, screenshot ingestion
-  integrations/ ManyChat adapter, Anthropic client, CRM handoff
+  integrations/ webhook adapter, Anthropic client, CRM handoff
   persistence/  SQLite + in-memory stores, idempotency, handoff jobs
   api/          dashboard metrics/lead APIs
   config/       campaign policy, voice profile

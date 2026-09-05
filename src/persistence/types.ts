@@ -36,11 +36,6 @@ export interface IdempotencyRepository {
    * process), false if it was already seen (duplicate — skip).
    */
   claim(key: string, ttlSeconds: number): Promise<boolean>;
-  /**
-   * Releases a claimed key so a transport retry can reprocess the event.
-   * Called only when processing failed before a reply was produced.
-   */
-  release(key: string): Promise<void>;
 }
 
 export interface HandoffRepository {

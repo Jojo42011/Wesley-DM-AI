@@ -137,9 +137,6 @@ export class MemoryStore implements Store {
         }
         return true;
       },
-      async release(key) {
-        self.idemKeys.delete(key);
-      },
     };
 
     this.handoffs = {
