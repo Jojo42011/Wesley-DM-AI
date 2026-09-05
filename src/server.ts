@@ -8,7 +8,7 @@ import { NullHandoff, WebhookHandoff, retryPendingHandoffs } from "./integration
 import { ExampleStore } from "./voice/exampleStore.js";
 import { handleTikTokWebhook } from "./app/tiktokWebhook.js";
 import { handleRespondIoWebhook } from "./app/respondioWebhook.js";
-import { RespondIoClient } from "./integrations/respondio.js";
+import { RespondIoClient, TikTokChannelResolver } from "./integrations/respondio.js";
 import { getLeadConversation, getLeads, getMetrics, getTestLeadState } from "./api/dashboardApi.js";
 import { createLogger } from "./observability/logger.js";
 import { seedDemoData } from "./demo/seed.js";
@@ -17,6 +17,12 @@ import type { PipelineDeps } from "./app/dmPipeline.js";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "..", "public");
 const PORT = Number(process.env.PORT ?? 3000);
+
+async function readRawBody(req: http.IncomingMessage): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(chunk as Buffer);
+  return Buffer.concat(chunks).toString("utf8");
+}
 
 async function readBody(req: http.IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -75,16 +81,21 @@ async function main(): Promise<void> {
   // to /webhook/respondio and we send replies back through its API.
   const respondIoToken = process.env.RESPONDIO_API_TOKEN ?? "";
   const respondIo = new RespondIoClient(respondIoToken);
-  let tiktokChannelId = process.env.RESPONDIO_TIKTOK_CHANNEL_ID
-    ? Number(process.env.RESPONDIO_TIKTOK_CHANNEL_ID)
-    : null;
-  if (respondIoToken && tiktokChannelId === null) {
-    tiktokChannelId = await respondIo.findTikTokChannelId().catch(() => null);
+  // Pin specific channel ids with RESPONDIO_TIKTOK_CHANNEL_ID (comma
+  // separated), otherwise every TikTok channel on the space is accepted.
+  const pinned = (process.env.RESPONDIO_TIKTOK_CHANNEL_ID ?? "")
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  const channels = new TikTokChannelResolver(respondIo, pinned);
+  if (respondIoToken && !pinned.length) {
+    await channels.refresh(true).catch(() => []);
   }
   const respondIoDeps = {
     ...deps,
     respondIo,
-    tiktokChannelId,
+    channels,
+    signingKey: process.env.RESPONDIO_SIGNING_KEY ?? null,
     webhookSecret: process.env.RESPONDIO_WEBHOOK_SECRET ?? null,
   };
 
@@ -108,13 +119,23 @@ async function main(): Promise<void> {
 
       // Production transport: respond.io TikTok inbox.
       if (route === "POST /webhook/respondio") {
-        const body = await readBody(req);
-        if (body === null) return json(res, 400, { error: "invalid_json" });
-        const secret =
-          url.searchParams.get("secret") ??
-          (req.headers["x-webhook-secret"] as string | undefined) ??
-          null;
-        const result = await handleRespondIoWebhook(respondIoDeps, body, { secret });
+        const raw = await readRawBody(req);
+        let body: unknown;
+        try {
+          body = raw ? JSON.parse(raw) : {};
+        } catch {
+          return json(res, 400, { error: "invalid_json" });
+        }
+        const result = await handleRespondIoWebhook(respondIoDeps, body, {
+          secret:
+            url.searchParams.get("secret") ??
+            (req.headers["x-webhook-secret"] as string | undefined) ??
+            null,
+          signature: (req.headers["x-webhook-signature"] as string | undefined) ?? null,
+          rawBody: raw,
+        });
+        // Acknowledge inside respond.io's 5s budget; the turn finishes behind
+        // this response and delivers its reply through the API.
         return json(res, result.status, result.body);
       }
 
@@ -122,7 +143,10 @@ async function main(): Promise<void> {
         return json(res, 200, {
           ok: true,
           ts: new Date().toISOString(),
-          transport: { respondio: Boolean(respondIoToken), tiktokChannelId },
+          transport: {
+            respondio: Boolean(respondIoToken),
+            tiktokChannelIds: channels.current(),
+          },
         });
       }
 

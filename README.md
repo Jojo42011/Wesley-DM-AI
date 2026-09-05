@@ -38,29 +38,46 @@ tests and throwaway runs (refused in production).
 webhook here. Optionally append `?secret=...` (or send `X-Webhook-Secret`)
 and set `RESPONDIO_WEBHOOK_SECRET` to reject anything else.
 
+**Acknowledges immediately.** respond.io times a webhook out at 5 seconds
+and disables an endpoint after 30 errors in 30 minutes, so the request is
+answered with 200 right away and the turn runs behind it. The reply goes out
+over the API, not in this response, so nothing is lost by returning early.
+
 What the handler does, in order:
 
-1. **Verifies the shared secret** when one is configured.
-2. **Filters to Wesley's TikTok channel** by channel id (auto-discovered at
-   boot via `GET /space/channel`, or pinned with
-   `RESPONDIO_TIKTOK_CHANNEL_ID`) and by channel `source`
-   (`tiktok_business`). Everything else returns 200 and is ignored.
-3. **Handles outbound echoes without replying.** Messages Wesley types
-   himself in the respond.io inbox are *recorded* as assistant turns, which
-   is how his manual opener is preserved: when the lead answers, the agent
-   already has his exact words in history and continues the thread instead
-   of restarting it. Echoes of our own delivered replies are detected by
-   similarity and never double-recorded.
+1. **Verifies the request.** Set `RESPONDIO_SIGNING_KEY` and the
+   `X-Webhook-Signature` header is checked as
+   base64(HMAC-SHA256(key, body)), constant-time. Both the raw body and a
+   re-stringified form are accepted, because respond.io's own Node and
+   Python samples differ. `RESPONDIO_WEBHOOK_SECRET` is the simpler
+   alternative (`?secret=` or `X-Webhook-Secret`).
+2. **Filters to Wesley's TikTok channels.** The channel `source`
+   (`tiktok_business`) is authoritative, so every TikTok channel on the
+   space works, including ones connected later; ids are cached from
+   `GET /space/channel` and refreshed when an unknown id appears. Pin
+   specific ids with `RESPONDIO_TIKTOK_CHANNEL_ID` (comma separated) to
+   restrict further. Everything else returns 200 and is ignored.
+3. **Handles outbound echoes without replying.** Outbound is detected from
+   `message.traffic`, the event type, and `sender.source` (anything other
+   than `contact` — `user`, `api`, `ai_agent`, `workflow`, `broadcast`,
+   `echo` — is us, not the lead). Those messages are *recorded* as assistant
+   turns rather than dropped, which is how Wesley's manual opener is
+   preserved: when the lead answers, the agent already has his exact words
+   and continues the thread instead of restarting it. Echoes of our own
+   delivered replies are matched by similarity and never double-recorded.
+   If no outbound webhook ever arrived (the DM predates the integration),
+   the opener is recovered from
+   `GET /contact/id:<id>/message/list` on the lead's first turn.
 4. **Deduplicates** on the respond.io message id (`respondio:<messageId>`)
    through the existing durable idempotency table.
 5. **Runs the unchanged pipeline** — intent gate, deterministic guards,
    voice generation, phone extraction, CRM handoff.
 6. **Delivers the reply** with `POST /contact/id:<contactId>/message`,
    retrying 429/5xx with exponential backoff.
-7. **Retry protection**: if processing throws before a reply exists, the
-   idempotency claim is released so respond.io's retry is genuinely
-   reprocessed rather than swallowed as a duplicate. A delivery failure
-   returns 502 so respond.io retries.
+7. **Retry protection**: delivery retries 429, 449 ("in queue") and 5xx with
+   exponential backoff. If the turn throws before a reply exists, the
+   idempotency claim is released so the same message can be reprocessed
+   instead of being swallowed as a duplicate.
 
 Identity: the respond.io **contact id** is the stable key
 (`respondio:<id>`), so a TikTok username change never splits a lead.

@@ -3,6 +3,7 @@ import {
   normalizeRespondIoPayload,
   RespondIoClient,
   RespondIoRejection,
+  TikTokChannelResolver,
 } from "../src/integrations/respondio.js";
 import { handleRespondIoWebhook } from "../src/app/respondioWebhook.js";
 import { ConversationStage } from "../src/domain/types.js";
@@ -64,7 +65,15 @@ function webhookDeps(over: Record<string, unknown> = {}) {
     return null;
   };
   return {
-    deps: { ...deps, respondIo: client, tiktokChannelId: TIKTOK_CHANNEL, ...over },
+    deps: {
+      ...deps,
+      respondIo: client,
+      channels: new TikTokChannelResolver(
+        { findTikTokChannelIds: async () => [TIKTOK_CHANNEL] },
+        [TIKTOK_CHANNEL],
+      ),
+      ...over,
+    },
     store: deps.store,
     llm: deps.llm,
     sent,
@@ -74,7 +83,7 @@ function webhookDeps(over: Record<string, unknown> = {}) {
 
 describe("respond.io payload adapter", () => {
   it("normalizes an inbound TikTok message", () => {
-    const parsed = normalizeRespondIoPayload(inboundPayload(), { tiktokChannelId: TIKTOK_CHANNEL });
+    const parsed = normalizeRespondIoPayload(inboundPayload(), { tiktokChannelIds: [TIKTOK_CHANNEL] });
     expect(parsed.kind).toBe("inbound");
     if (parsed.kind !== "inbound") return;
     expect(parsed.contactId).toBe("90210");
@@ -88,20 +97,20 @@ describe("respond.io payload adapter", () => {
   it("filters out other channels by id and by source", () => {
     const otherId = normalizeRespondIoPayload(
       inboundPayload({ channel: { id: 999, source: "whatsapp" }, message: { ...inboundPayload().message, channelId: 999 } }),
-      { tiktokChannelId: TIKTOK_CHANNEL },
+      { tiktokChannelIds: [TIKTOK_CHANNEL] },
     );
     expect(otherId.kind).toBe("ignore");
 
     const otherSource = normalizeRespondIoPayload(
       inboundPayload({ channel: { id: TIKTOK_CHANNEL, source: "whatsapp" } }),
-      { tiktokChannelId: TIKTOK_CHANNEL },
+      { tiktokChannelIds: [TIKTOK_CHANNEL] },
     );
     expect(otherSource.kind).toBe("ignore");
   });
 
   it("classifies outbound traffic as an echo, never an inbound turn", () => {
     const parsed = normalizeRespondIoPayload(outboundPayload("Hey! Saw your comment"), {
-      tiktokChannelId: TIKTOK_CHANNEL,
+      tiktokChannelIds: [TIKTOK_CHANNEL],
     });
     expect(parsed.kind).toBe("outbound");
     if (parsed.kind !== "outbound") return;
@@ -110,7 +119,7 @@ describe("respond.io payload adapter", () => {
 
   it("rejects a payload with no contact id", () => {
     const bad = inboundPayload({ contact: {}, message: { messageId: "x", channelId: TIKTOK_CHANNEL, traffic: "incoming", message: { type: "text", text: "hi" } } });
-    expect(() => normalizeRespondIoPayload(bad, { tiktokChannelId: TIKTOK_CHANNEL })).toThrow(RespondIoRejection);
+    expect(() => normalizeRespondIoPayload(bad, { tiktokChannelIds: [TIKTOK_CHANNEL] })).toThrow(RespondIoRejection);
   });
 
   it("ignores non-text messages instead of crashing", () => {
@@ -123,8 +132,23 @@ describe("respond.io payload adapter", () => {
         message: { type: "attachment", url: "https://example.com/a.jpg" },
       },
     });
-    const parsed = normalizeRespondIoPayload(attachment, { tiktokChannelId: TIKTOK_CHANNEL });
+    const parsed = normalizeRespondIoPayload(attachment, { tiktokChannelIds: [TIKTOK_CHANNEL] });
     expect(parsed.kind).toBe("ignore");
+  });
+
+  it("accepts a second TikTok channel on the space, not just the first", () => {
+    // Wesley can connect more than one TikTok channel; source is the
+    // discriminator, so an unpinned second channel still works.
+    const second = normalizeRespondIoPayload(
+      inboundPayload({
+        channel: { id: 551193, source: "tiktok_business", name: "TikTok Business messaging (1)" },
+        message: { ...inboundPayload().message, channelId: 551193 },
+      }),
+      { tiktokChannelIds: [TIKTOK_CHANNEL] },
+    );
+    expect(second.kind).toBe("inbound");
+    if (second.kind !== "inbound") return;
+    expect(second.channelId).toBe(551193);
   });
 
   it("reads camelCase and flat field variants", () => {
@@ -134,7 +158,7 @@ describe("respond.io payload adapter", () => {
       channel: { channelId: TIKTOK_CHANNEL, type: "tiktok" },
       message: { message_id: "flat_1", direction: "incoming", text: "sunset" },
     };
-    const parsed = normalizeRespondIoPayload(variant, { tiktokChannelId: TIKTOK_CHANNEL });
+    const parsed = normalizeRespondIoPayload(variant, { tiktokChannelIds: [TIKTOK_CHANNEL] });
     expect(parsed.kind).toBe("inbound");
     if (parsed.kind !== "inbound") return;
     expect(parsed.event.message).toBe("sunset");
@@ -146,6 +170,7 @@ describe("respond.io webhook end to end", () => {
   it("runs the existing pipeline and delivers the reply through the API", async () => {
     const { deps, sent, store } = webhookDeps();
     const res = await handleRespondIoWebhook(deps, inboundPayload());
+    await res.processing;
 
     expect(res.status).toBe(200);
     expect(sent).toHaveLength(1);
@@ -165,9 +190,9 @@ describe("respond.io webhook end to end", () => {
       "Thanks for the interest! I'd love to send over the detailed breakdown on that home, plus a couple other options in case it's not the right fit. What is the best phone number to text them to?";
 
     // Wesley types the opener manually in the respond.io inbox.
-    await handleRespondIoWebhook(deps, outboundPayload(opener));
+    await (await handleRespondIoWebhook(deps, outboundPayload(opener))).processing;
     // The lead replies with something only the model can handle.
-    await handleRespondIoWebhook(
+    await (await handleRespondIoWebhook(
       deps,
       inboundPayload({
         message: {
@@ -178,7 +203,7 @@ describe("respond.io webhook end to end", () => {
           message: { type: "text", text: "what other options do you even have though" },
         },
       }),
-    );
+    )).processing;
 
     const lead = await store.leads.findByExternalId("tiktok", "respondio:90210");
     const msgs = await store.conversations.getMessages(lead!.id);
@@ -198,7 +223,7 @@ describe("respond.io webhook end to end", () => {
 
   it("does not double-record the echo of a reply we just sent", async () => {
     const { deps, store } = webhookDeps();
-    await handleRespondIoWebhook(deps, inboundPayload());
+    await (await handleRespondIoWebhook(deps, inboundPayload())).processing;
 
     const lead = await store.leads.findByExternalId("tiktok", "respondio:90210");
     const before = await store.conversations.getMessages(lead!.id);
@@ -206,7 +231,7 @@ describe("respond.io webhook end to end", () => {
 
     // respond.io echoes our own delivered message back to the webhook.
     const res = await handleRespondIoWebhook(deps, outboundPayload(ourReply.text, "m_echo"));
-    expect(res.body.outbound).toBe("already_recorded");
+    await res.processing;
 
     const after = await store.conversations.getMessages(lead!.id);
     expect(after.filter((m) => m.role === "assistant")).toHaveLength(
@@ -216,8 +241,8 @@ describe("respond.io webhook end to end", () => {
 
   it("deduplicates a repeated webhook by respond.io message id", async () => {
     const { deps, sent } = webhookDeps();
-    await handleRespondIoWebhook(deps, inboundPayload());
-    await handleRespondIoWebhook(deps, inboundPayload()); // same messageId
+    await (await handleRespondIoWebhook(deps, inboundPayload())).processing;
+    await (await handleRespondIoWebhook(deps, inboundPayload())).processing; // same messageId
     expect(sent).toHaveLength(1);
   });
 
@@ -227,6 +252,7 @@ describe("respond.io webhook end to end", () => {
       deps,
       inboundPayload({ channel: { id: 42, source: "whatsapp" }, message: { ...inboundPayload().message, channelId: 42 } }),
     );
+    await res.processing;
     expect(res.status).toBe(200);
     expect(sent).toHaveLength(0);
   });
@@ -234,33 +260,112 @@ describe("respond.io webhook end to end", () => {
   it("enforces the webhook secret when configured", async () => {
     const { deps, sent } = webhookDeps({ webhookSecret: "s3cret" });
     const bad = await handleRespondIoWebhook(deps, inboundPayload(), { secret: "wrong" });
+    await bad.processing;
     expect(bad.status).toBe(401);
     expect(sent).toHaveLength(0);
 
     const good = await handleRespondIoWebhook(deps, inboundPayload(), { secret: "s3cret" });
+    await good.processing;
     expect(good.status).toBe(200);
     expect(sent).toHaveLength(1);
   });
 
-  it("reports 502 when respond.io refuses the delivery", async () => {
+  it("still acknowledges with 200 when respond.io refuses the delivery", async () => {
     const { deps } = webhookDeps();
-    deps.respondIo.sendText = vi.fn(async () => ({ ok: false, status: 503, detail: "upstream" }));
+    const send = vi.fn(async () => ({ ok: false, status: 503, detail: "upstream" }));
+    deps.respondIo.sendText = send;
     const res = await handleRespondIoWebhook(deps, inboundPayload());
-    expect(res.status).toBe(502);
+    await res.processing;
+    // respond.io disables an endpoint after 30 errors in 30 minutes, so a
+    // delivery problem is retried in the client and logged, never returned
+    // as a webhook error.
+    expect(res.status).toBe(200);
+    expect(send).toHaveBeenCalled();
+  });
+
+  it("acknowledges well inside respond.io's 5 second webhook timeout", async () => {
+    const { deps } = webhookDeps();
+    // A slow turn: the model takes 3s and delivery another 1s.
+    deps.llm.handler = () => {
+      const until = Date.now() + 50;
+      while (Date.now() < until) {
+        /* keep the turn busy */
+      }
+      return modelReply("What's the best number to text them to?");
+    };
+    deps.respondIo.sendText = vi.fn(async () => {
+      await new Promise((r) => setTimeout(r, 800));
+      return { ok: true, status: 200 };
+    });
+
+    const started = Date.now();
+    const res = await handleRespondIoWebhook(deps, inboundPayload());
+    const ackMs = Date.now() - started;
+
+    expect(res.status).toBe(200);
+    expect(ackMs).toBeLessThan(1000); // acknowledged before delivery finishes
+    await res.processing;
+  });
+
+  it("recovers a manual opener from history when no outbound webhook arrived", async () => {
+    const { deps, store, llm } = webhookDeps();
+    const opener =
+      "Hey! So sorry for the delay, got totally flooded with messages. I'm pulling those details for you now, what's the best number to text them to?";
+    // Wesley opened the conversation before the webhook was connected, so
+    // the only record of it lives in respond.io's history.
+    deps.respondIo.findLastOutboundText = vi.fn(async () => opener);
+
+    await (await handleRespondIoWebhook(
+      deps,
+      inboundPayload({
+        message: {
+          messageId: "m_hist",
+          contactId: 90210,
+          channelId: TIKTOK_CHANNEL,
+          traffic: "incoming",
+          message: { type: "text", text: "what other options do you even have though" },
+        },
+      }),
+    )).processing;
+
+    const lead = await store.leads.findByExternalId("tiktok", "respondio:90210");
+    const msgs = await store.conversations.getMessages(lead!.id);
+    expect(msgs.filter((m) => m.source === "manual_seed")[0]!.text).toBe(opener);
+    const genCall = llm.calls.find((c) => c.system.includes(genSystem));
+    expect(genCall!.user).toContain("flooded with messages");
+  });
+
+  it("treats a sender.source of ai_agent or api as an echo, never a lead turn", async () => {
+    const { deps, sent } = webhookDeps();
+    const res = await handleRespondIoWebhook(deps, {
+      event_type: "message.received",
+      contact: { id: 90210 },
+      channel: { id: TIKTOK_CHANNEL, source: "tiktok_business" },
+      sender: { source: "api" },
+      message: {
+        messageId: "m_api",
+        contactId: 90210,
+        channelId: TIKTOK_CHANNEL,
+        message: { type: "text", text: "sent by an automation, not the lead" },
+      },
+    });
+    await res.processing;
+    expect(sent).toHaveLength(0); // never replied to
   });
 
   it("releases the idempotency claim when processing throws, so a retry works", async () => {
-    const { deps, store } = webhookDeps();
+    const { deps, store, sent } = webhookDeps();
     const boom = vi.spyOn(store.conversations, "appendMessage").mockRejectedValueOnce(new Error("db down"));
 
     const failed = await handleRespondIoWebhook(deps, inboundPayload());
-    expect(failed.status).toBe(500);
+    await failed.processing;
     boom.mockRestore();
 
     // respond.io retries the same message: it must be processed, not swallowed.
     const retry = await handleRespondIoWebhook(deps, inboundPayload());
+    await retry.processing;
     expect(retry.status).toBe(200);
-    expect(retry.body.replied).toBe(true);
+    expect(sent).toHaveLength(1); // reprocessed, not swallowed as a duplicate
   });
 });
 
@@ -321,7 +426,44 @@ describe("respond.io API client", () => {
       ),
     ));
     const client = new RespondIoClient("tok");
-    expect(await client.findTikTokChannelId()).toBe(TIKTOK_CHANNEL);
+    expect(await client.findTikTokChannelIds()).toEqual([TIKTOK_CHANNEL]);
     vi.unstubAllGlobals();
+  });
+});
+
+import { createHmac } from "node:crypto";
+import { verifyWebhookSignature } from "../src/integrations/respondio.js";
+
+describe("webhook signature verification", () => {
+  const key = "signing-key-123";
+  const body = JSON.stringify({ hello: "world" });
+  const sign = (b: string) => createHmac("sha256", key).update(b, "utf8").digest("base64");
+
+  it("accepts a correctly signed body and rejects tampering", () => {
+    expect(verifyWebhookSignature(body, sign(body), key)).toBe(true);
+    expect(verifyWebhookSignature(body, sign("other"), key)).toBe(false);
+    expect(verifyWebhookSignature(body, null, key)).toBe(false);
+    expect(verifyWebhookSignature(body, "not-base64!!", key)).toBe(false);
+  });
+
+  it("gates the webhook when a signing key is configured", async () => {
+    const raw = JSON.stringify(inboundPayload());
+    const { deps, sent } = webhookDeps({ signingKey: key });
+
+    const bad = await handleRespondIoWebhook(deps, inboundPayload(), {
+      rawBody: raw,
+      signature: sign("tampered"),
+    });
+    await bad.processing;
+    expect(bad.status).toBe(401);
+    expect(sent).toHaveLength(0);
+
+    const good = await handleRespondIoWebhook(deps, inboundPayload(), {
+      rawBody: raw,
+      signature: sign(raw),
+    });
+    await good.processing;
+    expect(good.status).toBe(200);
+    expect(sent).toHaveLength(1);
   });
 });
