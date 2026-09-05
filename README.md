@@ -6,9 +6,15 @@ Wesley's voice, and deterministically captures **phone numbers** — then hands
 leads off to the CRM. A clean dashboard shows every metric and lead live.
 
 ```
-TikTok DM → ManyChat → POST /webhook/tiktok → pipeline → { "reply": "..." } → ManyChat sends it
-                                          ↘ SQLite   ↘ CRM handoff  ↘ /  (dashboard) ↘ /testing
+TikTok DM → respond.io → POST /webhook/respondio → pipeline → reply
+                                                      ↓          ↓
+                              SQLite / CRM handoff    respond.io Developer API → TikTok
 ```
+
+**respond.io is transport only.** It is the TikTok inbox and the delivery
+channel. The brain (voice, intent gate, funnel, phone extraction, CRM
+handoff) stays in this backend and is unchanged. Nothing is rebuilt or
+retrained inside respond.io.
 
 ## Quick start
 
@@ -26,7 +32,54 @@ runs as a single always-on machine — SQLite is single-writer, which matches
 the per-conversation lock design. `STORE=memory` gives an ephemeral store for
 tests and throwaway runs (refused in production).
 
-## ManyChat webhook contract
+## respond.io transport (production)
+
+`POST /webhook/respondio` — point respond.io's **New Incoming Message**
+webhook here. Optionally append `?secret=...` (or send `X-Webhook-Secret`)
+and set `RESPONDIO_WEBHOOK_SECRET` to reject anything else.
+
+What the handler does, in order:
+
+1. **Verifies the shared secret** when one is configured.
+2. **Filters to Wesley's TikTok channel** by channel id (auto-discovered at
+   boot via `GET /space/channel`, or pinned with
+   `RESPONDIO_TIKTOK_CHANNEL_ID`) and by channel `source`
+   (`tiktok_business`). Everything else returns 200 and is ignored.
+3. **Handles outbound echoes without replying.** Messages Wesley types
+   himself in the respond.io inbox are *recorded* as assistant turns, which
+   is how his manual opener is preserved: when the lead answers, the agent
+   already has his exact words in history and continues the thread instead
+   of restarting it. Echoes of our own delivered replies are detected by
+   similarity and never double-recorded.
+4. **Deduplicates** on the respond.io message id (`respondio:<messageId>`)
+   through the existing durable idempotency table.
+5. **Runs the unchanged pipeline** — intent gate, deterministic guards,
+   voice generation, phone extraction, CRM handoff.
+6. **Delivers the reply** with `POST /contact/id:<contactId>/message`,
+   retrying 429/5xx with exponential backoff.
+7. **Retry protection**: if processing throws before a reply exists, the
+   idempotency claim is released so respond.io's retry is genuinely
+   reprocessed rather than swallowed as a duplicate. A delivery failure
+   returns 502 so respond.io retries.
+
+Identity: the respond.io **contact id** is the stable key
+(`respondio:<id>`), so a TikTok username change never splits a lead.
+
+Verified endpoints (live, 2026-09):
+
+```
+GET  https://api.respond.io/v2/space/channel
+     -> {"items":[{"id":551174,"name":"TikTok Business messaging",
+                   "source":"tiktok_business"}]}
+POST https://api.respond.io/v2/contact/id:<contactId>/message
+     Authorization: Bearer $RESPONDIO_API_TOKEN
+     {"message":{"type":"text","text":"..."},"channelId":551174}
+```
+
+## ManyChat webhook contract (legacy / simulator)
+
+Kept so the `/testing` console can drive the pipeline without sending real
+messages. Not used by production traffic.
 
 `POST /webhook/tiktok`
 

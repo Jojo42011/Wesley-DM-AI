@@ -19,7 +19,7 @@ import { triggerHandoff } from "../integrations/handoff.js";
 import { idempotencyKey } from "../integrations/manychat.js";
 import { createLogger, preview, type Logger } from "../observability/logger.js";
 import { runIntentGate } from "../modules/intentGate.js";
-import { seedManualOpener } from "../modules/openingDm.js";
+import { seedManualOpener, stageForOpener } from "../modules/openingDm.js";
 import { extractEmail, extractPhone } from "../modules/contactCapture.js";
 import {
   isAgreement,
@@ -35,6 +35,7 @@ import { runPreflight } from "./preflight.js";
 import { buildSystemPrompt, buildUserPrompt } from "./promptBuilder.js";
 import { buildRetroactiveFix, validateReply } from "./responseValidator.js";
 import { selectFallback } from "./fallbacks.js";
+import { isNearDuplicate } from "./similarity.js";
 import type { ExampleStore } from "../voice/exampleStore.js";
 import { retrieveExamples } from "../voice/exampleRetrieval.js";
 
@@ -473,6 +474,84 @@ async function processLocked(
   }
   await store.leads.update(lead);
   return finish(logger, started, lead, stageBefore, lead.stage, finalReply, decision, finalReply === null);
+}
+
+/**
+ * Records a message the HUMAN side sent (Wesley typing manually in the
+ * respond.io inbox, or our own reply echoing back) as an assistant turn.
+ * Never generates a reply.
+ *
+ * This is how the manual opener is preserved: when the lead answers, the
+ * pipeline already has Wesley's exact words in history, so the agent
+ * continues the conversation instead of restarting it.
+ */
+export async function recordOutboundMessage(
+  deps: Pick<PipelineDeps, "store" | "logger">,
+  params: {
+    externalUserId: string;
+    username?: string | null;
+    displayName?: string | null;
+    text: string;
+    providerMessageId?: string | null;
+    campaignKey?: string | null;
+  },
+): Promise<{ recorded: boolean; leadId: string | null; reason: string }> {
+  const { store } = deps;
+  const logger = (deps.logger ?? createLogger()).child({ user: params.externalUserId });
+  const text = params.text.trim();
+  if (!text) return { recorded: false, leadId: null, reason: "empty_text" };
+
+  const policy = getCampaign(params.campaignKey);
+
+  return store.withConversationLock(`tiktok:${params.externalUserId}`, async () => {
+    let lead = await store.leads.findByExternalId("tiktok", params.externalUserId);
+    if (!lead) {
+      // Wesley messaged them first: create the lead so the opener has a home.
+      lead = newLead(
+        {
+          platform: "tiktok",
+          externalUserId: params.externalUserId,
+          username: params.username ?? null,
+          displayName: params.displayName ?? null,
+          message: "",
+          providerMessageId: null,
+          wesleyPreviousOutbound: null,
+          conversationGoal: null,
+          sourceCampaign: params.campaignKey ?? null,
+          flowKey: null,
+          isEcho: false,
+        },
+        policy,
+      );
+      await store.leads.create(lead);
+    }
+
+    const existing = await store.conversations.getMessages(lead.id);
+
+    // Our own delivered replies echo back through the same webhook. Skip
+    // anything we already have, so the thread never doubles up.
+    const recentAssistant = existing.filter((m) => m.role === "assistant").slice(-5);
+    if (recentAssistant.some((m) => isNearDuplicate(m.text, text, 0.9))) {
+      return { recorded: false, leadId: lead.id, reason: "already_recorded" };
+    }
+
+    const isFirstOutbound = recentAssistant.length === 0;
+    await appendAssistantMessage(store, lead, text, "manual_seed");
+
+    if (isFirstOutbound) {
+      lead.stage = transition(lead.stage, stageForOpener(text));
+    }
+    lead.lastOutboundAt = now();
+    await store.leads.update(lead);
+
+    logger.log("manual_opener_seeded", {
+      leadId: lead.id,
+      firstOutbound: isFirstOutbound,
+      stage: lead.stage,
+      preview: preview(text),
+    });
+    return { recorded: true, leadId: lead.id, reason: isFirstOutbound ? "opener" : "manual_reply" };
+  });
 }
 
 /* ------------------------------------------------------------- helpers */

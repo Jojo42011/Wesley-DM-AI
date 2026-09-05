@@ -7,6 +7,8 @@ import { AnthropicLlm } from "./integrations/llm.js";
 import { NullHandoff, WebhookHandoff, retryPendingHandoffs } from "./integrations/handoff.js";
 import { ExampleStore } from "./voice/exampleStore.js";
 import { handleTikTokWebhook } from "./app/tiktokWebhook.js";
+import { handleRespondIoWebhook } from "./app/respondioWebhook.js";
+import { RespondIoClient } from "./integrations/respondio.js";
 import { getLeadConversation, getLeads, getMetrics, getTestLeadState } from "./api/dashboardApi.js";
 import { createLogger } from "./observability/logger.js";
 import { seedDemoData } from "./demo/seed.js";
@@ -69,6 +71,23 @@ async function main(): Promise<void> {
     exampleStore,
   };
 
+  // respond.io is the production TikTok transport: it delivers inbound DMs
+  // to /webhook/respondio and we send replies back through its API.
+  const respondIoToken = process.env.RESPONDIO_API_TOKEN ?? "";
+  const respondIo = new RespondIoClient(respondIoToken);
+  let tiktokChannelId = process.env.RESPONDIO_TIKTOK_CHANNEL_ID
+    ? Number(process.env.RESPONDIO_TIKTOK_CHANNEL_ID)
+    : null;
+  if (respondIoToken && tiktokChannelId === null) {
+    tiktokChannelId = await respondIo.findTikTokChannelId().catch(() => null);
+  }
+  const respondIoDeps = {
+    ...deps,
+    respondIo,
+    tiktokChannelId,
+    webhookSecret: process.env.RESPONDIO_WEBHOOK_SECRET ?? null,
+  };
+
   // Retry failed CRM handoffs in the background.
   const retryTimer = setInterval(() => {
     retryPendingHandoffs(store, handoff, logger).catch(() => {});
@@ -87,8 +106,24 @@ async function main(): Promise<void> {
         return json(res, result.status, result.body);
       }
 
+      // Production transport: respond.io TikTok inbox.
+      if (route === "POST /webhook/respondio") {
+        const body = await readBody(req);
+        if (body === null) return json(res, 400, { error: "invalid_json" });
+        const secret =
+          url.searchParams.get("secret") ??
+          (req.headers["x-webhook-secret"] as string | undefined) ??
+          null;
+        const result = await handleRespondIoWebhook(respondIoDeps, body, { secret });
+        return json(res, result.status, result.body);
+      }
+
       if (route === "GET /health") {
-        return json(res, 200, { ok: true, ts: new Date().toISOString() });
+        return json(res, 200, {
+          ok: true,
+          ts: new Date().toISOString(),
+          transport: { respondio: Boolean(respondIoToken), tiktokChannelId },
+        });
       }
 
       if (route === "GET /api/metrics") {

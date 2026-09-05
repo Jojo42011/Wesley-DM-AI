@@ -294,6 +294,9 @@ export class SqliteStore implements Store {
           .run(key, now + ttlSeconds * 1000);
         return res.changes > 0;
       },
+      async release(key) {
+        db.prepare("DELETE FROM processed_events WHERE key=?").run(key);
+      },
     };
 
     this.handoffs = {
