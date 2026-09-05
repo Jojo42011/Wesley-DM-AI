@@ -467,3 +467,50 @@ describe("webhook signature verification", () => {
     expect(sent).toHaveLength(1);
   });
 });
+
+describe("opener recovery does not trust list ordering", () => {
+  function historyResponse(items: unknown[]) {
+    return vi.fn(async () => new Response(JSON.stringify({ items }), { status: 200 }));
+  }
+  const older = {
+    messageId: 1726740000000000,
+    traffic: "outgoing",
+    message: { type: "text", text: "OLD opener from weeks ago" },
+  };
+  const newer = {
+    messageId: 1726749999999999,
+    traffic: "outgoing",
+    message: { type: "text", text: "NEWEST opener" },
+  };
+  const inbound = {
+    messageId: 1726745555555555,
+    traffic: "incoming",
+    message: { type: "text", text: "lead said something" },
+  };
+
+  it("picks the highest messageId whether the list is newest first or oldest first", async () => {
+    for (const order of [[newer, inbound, older], [older, inbound, newer]]) {
+      vi.stubGlobal("fetch", historyResponse(order));
+      const client = new RespondIoClient("tok");
+      expect(await client.findLastOutboundText("1")).toBe("NEWEST opener");
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("ignores inbound messages and returns null when there is no outbound history", async () => {
+    vi.stubGlobal("fetch", historyResponse([inbound]));
+    const client = new RespondIoClient("tok");
+    expect(await client.findLastOutboundText("1")).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
+  it("falls back to array position when ids are unusable", async () => {
+    vi.stubGlobal("fetch", historyResponse([
+      { messageId: null, traffic: "outgoing", message: { type: "text", text: "first" } },
+      { messageId: null, traffic: "outgoing", message: { type: "text", text: "last" } },
+    ]));
+    const client = new RespondIoClient("tok");
+    expect(await client.findLastOutboundText("1")).toBe("last");
+    vi.unstubAllGlobals();
+  });
+});

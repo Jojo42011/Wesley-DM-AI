@@ -277,6 +277,17 @@ export interface SendResult {
   detail?: string;
 }
 
+export interface HistoryMessage {
+  text: string | null;
+  traffic: string | null;
+  messageId: string | null;
+  senderSource: string | null;
+  /** Numeric messageId when available; respond.io ids increase over time. */
+  sortKey: number | null;
+  /** Position in the returned array, used only when ids are unusable. */
+  index: number;
+}
+
 /**
  * Caches which channel ids are TikTok, refreshing on demand. Wesley can
  * connect another TikTok channel in respond.io and it starts working
@@ -354,10 +365,7 @@ export class RespondIoClient {
    * GET /contact/id:<id>/message/list — recent messages, newest first.
    * Used to recover a manual opener Wesley sent before the webhook existed.
    */
-  async listMessages(
-    contactId: string,
-    limit = 20,
-  ): Promise<Array<{ text: string | null; traffic: string | null; messageId: string | null }>> {
+  async listMessages(contactId: string, limit = 20): Promise<HistoryMessage[]> {
     try {
       const res = await fetch(
         `${this.baseUrl}/contact/id:${encodeURIComponent(contactId)}/message/list?limit=${limit}`,
@@ -365,13 +373,17 @@ export class RespondIoClient {
       );
       if (!res.ok) return [];
       const body = (await res.json()) as { items?: unknown[] };
-      return (body.items ?? []).map((item) => {
+      return (body.items ?? []).map((item, index) => {
         const m = obj(item) ?? {};
         const inner = obj(pick(m, "message")) ?? m;
+        const rawId = pick(m, "messageId", "message_id", "id");
         return {
           text: str(pick(inner, "text", "body")),
           traffic: str(pick(m, "traffic", "direction"))?.toLowerCase() ?? null,
-          messageId: str(pick(m, "messageId", "message_id", "id")),
+          messageId: str(rawId),
+          senderSource: str(pick(obj(pick(m, "sender")), "source"))?.toLowerCase() ?? null,
+          sortKey: typeof rawId === "number" ? rawId : Number(rawId) || null,
+          index,
         };
       });
     } catch {
@@ -380,17 +392,28 @@ export class RespondIoClient {
   }
 
   /**
-   * The most recent message Wesley sent to this contact, if any. This is the
-   * fallback path for recovering his manual opener when the outbound webhook
-   * was never delivered (for example the DM predates the integration).
+   * The most recent message Wesley sent to this contact, if any. Fallback for
+   * recovering his manual opener when no outbound webhook was received (for
+   * example the DM predates this integration).
+   *
+   * respond.io does not document whether `message/list` is newest-first or
+   * oldest-first, so ordering is never assumed: `messageId` is a
+   * monotonically increasing integer, so the newest outbound message is the
+   * one with the highest id, and array position is only the tiebreaker when
+   * ids are missing or non numeric.
    */
   async findLastOutboundText(contactId: string): Promise<string | null> {
     const items = await this.listMessages(contactId, 20);
-    for (const item of items) {
-      if (!item.text) continue;
-      if (item.traffic === "outgoing" || item.traffic === "outbound") return item.text;
-    }
-    return null;
+    const outbound = items.filter(
+      (m) => m.text && (m.traffic === "outgoing" || m.traffic === "outbound"),
+    );
+    if (!outbound.length) return null;
+
+    const haveIds = outbound.every((m) => m.sortKey !== null);
+    const newest = haveIds
+      ? outbound.reduce((a, b) => ((b.sortKey ?? 0) > (a.sortKey ?? 0) ? b : a))
+      : outbound[outbound.length - 1]!;
+    return newest.text;
   }
 
   /** GET /space/channel — used to auto-discover the TikTok channel id. */
