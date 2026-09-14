@@ -7,6 +7,19 @@ import { AnthropicLlm } from "./integrations/llm.js";
 import { NullHandoff, WebhookHandoff, retryPendingHandoffs } from "./integrations/handoff.js";
 import { ExampleStore } from "./voice/exampleStore.js";
 import { handleTikTokWebhook } from "./app/tiktokWebhook.js";
+import { ZernioWebhookHandler } from "./app/zernioWebhook.js";
+import {
+  checkDashboardAuth,
+  checkSimulatorAuth,
+  maybeSetDashboardCookie,
+  type AuthOutcome,
+} from "./http/auth.js";
+import {
+  isZernioDmConfigured,
+  zernioAccounts,
+  zernioTikTokAccountId,
+  zernioWebhookSecretConfigured,
+} from "./integrations/zernio/dm.js";
 import { getLeadConversation, getLeads, getMetrics, getTestLeadState } from "./api/dashboardApi.js";
 import { createLogger } from "./observability/logger.js";
 import { seedDemoData } from "./demo/seed.js";
@@ -16,13 +29,28 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = path.resolve(__dirname, "..", "public");
 const PORT = Number(process.env.PORT ?? 3000);
 
-async function readBody(req: http.IncomingMessage): Promise<unknown> {
+/** Zernio's webhook payloads are small; anything larger is not one of ours. */
+const MAX_WEBHOOK_BYTES = 1_000_000;
+
+async function readRawBody(req: http.IncomingMessage): Promise<Buffer | null> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req) chunks.push(chunk as Buffer);
-  const raw = Buffer.concat(chunks).toString("utf8");
-  if (!raw) return {};
+  let size = 0;
+  for await (const chunk of req) {
+    const buf = chunk as Buffer;
+    size += buf.length;
+    if (size > MAX_WEBHOOK_BYTES) return null;
+    chunks.push(buf);
+  }
+  return Buffer.concat(chunks);
+}
+
+async function readBody(req: http.IncomingMessage): Promise<unknown> {
+  const raw = await readRawBody(req);
+  if (raw === null) return null;
+  const text = raw.toString("utf8");
+  if (!text) return {};
   try {
-    return JSON.parse(raw);
+    return JSON.parse(text);
   } catch {
     return null;
   }
@@ -43,6 +71,23 @@ function serveStatic(res: http.ServerResponse, file: string, type: string): bool
   res.writeHead(200, { "content-type": type, "cache-control": "no-cache" });
   res.end(readFileSync(full));
   return true;
+}
+
+/**
+ * Turn an auth outcome into a response. `not_configured` is deliberately its
+ * own status and message: it means this server was deployed without
+ * DASHBOARD_TOKEN, which is an operator mistake, not a bad credential, and it
+ * must not be fixed by quietly letting the request through.
+ */
+function denyAuth(res: http.ServerResponse, outcome: Exclude<AuthOutcome, "ok">, what: string): void {
+  if (outcome === "not_configured") {
+    json(res, 503, {
+      error: "auth_not_configured",
+      detail: `${what} is closed because its access secret is not set on this server.`,
+    });
+    return;
+  }
+  json(res, 401, { error: "unauthorized" });
 }
 
 async function main(): Promise<void> {
@@ -69,6 +114,13 @@ async function main(): Promise<void> {
     exampleStore,
   };
 
+  /* One handler for the process, so its per-conversation batching window spans
+     deliveries rather than being rebuilt per request. */
+  const zernio = new ZernioWebhookHandler({
+    pipeline: deps,
+    debounceMs: process.env.ZERNIO_DEBOUNCE_MS ? Number(process.env.ZERNIO_DEBOUNCE_MS) : undefined,
+  });
+
   // Retry failed CRM handoffs in the background.
   const retryTimer = setInterval(() => {
     retryPendingHandoffs(store, handoff, logger).catch(() => {});
@@ -80,27 +132,77 @@ async function main(): Promise<void> {
     const route = `${req.method} ${url.pathname}`;
 
     try {
+      /* ------------------------------------------- Zernio: the live transport.
+         Never behind the dashboard token. Zernio can only present an HMAC over
+         the raw body, which this verifies before parsing anything. */
+      if (route === "POST /api/zernio/webhook") {
+        const raw = await readRawBody(req);
+        if (raw === null) return json(res, 413, { ok: false, error: "payload_too_large" });
+        const sig = req.headers["x-zernio-signature"];
+        const ack = await zernio.handle({
+          rawBody: raw,
+          signature: typeof sig === "string" ? sig : null,
+        });
+        json(res, ack.status, ack.body);
+        /* Deliberately not awaited: the pipeline and the outbound send run
+           after the ack so Zernio's five second budget is never at risk. */
+        if (ack.processing) void ack.processing;
+        return;
+      }
+
+      /* ------------------------------ The ManyChat-shaped testing simulator.
+         Kept for the testing console, no longer an open door on production. */
       if (route === "POST /webhook/tiktok") {
+        const auth = checkSimulatorAuth(req, url);
+        if (auth !== "ok") return denyAuth(res, auth, "The testing webhook");
         const body = await readBody(req);
         if (body === null) return json(res, 400, { error: "invalid_json" });
         const result = await handleTikTokWebhook(deps, body);
         return json(res, result.status, result.body);
       }
 
+      /* Fly's health checker gets an unauthenticated answer, and it reveals
+         nothing beyond the fact that the process is up. */
       if (route === "GET /health") {
         return json(res, 200, { ok: true, ts: new Date().toISOString() });
       }
 
+      /* ------------------------------------------- everything below is gated */
+      const auth = checkDashboardAuth(req, url);
+
+      if (route === "GET /api/zernio/status") {
+        if (auth !== "ok") return denyAuth(res, auth, "The Zernio status endpoint");
+        const configuredId = zernioTikTokAccountId();
+        const accounts = await zernioAccounts();
+        const tiktokAccounts = accounts.accounts.filter((a) => a.platform.toLowerCase() === "tiktok");
+        const ours = configuredId ? tiktokAccounts.find((a) => a.id === configuredId) ?? null : null;
+        /* Never the key, never the secret: only whether each is present. */
+        return json(res, 200, {
+          apiKeyConfigured: isZernioDmConfigured(),
+          webhookSecretConfigured: zernioWebhookSecretConfigured(),
+          tiktokAccountId: configuredId || null,
+          authOk: accounts.ok,
+          authStatus: accounts.status,
+          authError: accounts.error ?? null,
+          tiktokAccounts,
+          wesleyAccountPresent: Boolean(ours),
+          wesleyAccountActive: ours?.active ?? false,
+        });
+      }
+
       if (route === "GET /api/metrics") {
+        if (auth !== "ok") return denyAuth(res, auth, "The dashboard API");
         return json(res, 200, await getMetrics(store));
       }
 
       if (route === "GET /api/leads") {
+        if (auth !== "ok") return denyAuth(res, auth, "The dashboard API");
         const limit = Number(url.searchParams.get("limit") ?? 100);
         return json(res, 200, await getLeads(store, Math.min(limit, 500)));
       }
 
       if (route === "GET /api/testing/state") {
+        if (auth !== "ok") return denyAuth(res, auth, "The dashboard API");
         const user = url.searchParams.get("user") ?? "";
         const state = await getTestLeadState(store, user);
         return state ? json(res, 200, state) : json(res, 404, { error: "not_found" });
@@ -108,15 +210,20 @@ async function main(): Promise<void> {
 
       const convoMatch = url.pathname.match(/^\/api\/leads\/([\w-]+)\/conversation$/);
       if (req.method === "GET" && convoMatch) {
+        if (auth !== "ok") return denyAuth(res, auth, "The dashboard API");
         const convo = await getLeadConversation(store, convoMatch[1]!);
         return convo ? json(res, 200, convo) : json(res, 404, { error: "not_found" });
       }
 
       // Dashboard frontend.
       if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
+        if (auth !== "ok") return denyAuth(res, auth, "The dashboard");
+        maybeSetDashboardCookie(req, res, url);
         if (serveStatic(res, "index.html", "text/html; charset=utf-8")) return;
       }
       if (req.method === "GET" && url.pathname === "/testing") {
+        if (auth !== "ok") return denyAuth(res, auth, "The testing console");
+        maybeSetDashboardCookie(req, res, url);
         if (serveStatic(res, "testing.html", "text/html; charset=utf-8")) return;
       }
 
@@ -135,6 +242,10 @@ async function main(): Promise<void> {
       port: PORT,
       store: process.env.STORE === "memory" ? "memory" : "sqlite",
       demoMode: process.env.DEMO_MODE === "1",
+      zernioConfigured: isZernioDmConfigured(),
+      zernioWebhookOpen: zernioWebhookSecretConfigured(),
+      zernioAccountPinned: Boolean(zernioTikTokAccountId()),
+      dashboardLocked: Boolean(process.env.DASHBOARD_TOKEN?.trim()),
     });
   });
 }

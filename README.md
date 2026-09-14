@@ -1,23 +1,27 @@
 # Wesley DM AI — TikTok Lead Concierge
 
 Production-grade TikTok DM automation for Wesley (realtor). Inbound TikTok DMs
-reach the engine over a pluggable transport; it understands the conversation,
+arrive through the **Zernio** inbox; the engine understands the conversation,
 replies in Wesley's learned voice, and deterministically captures **phone
 numbers** — then hands leads off to the CRM. A clean dashboard shows every
 metric and lead live.
 
 ```
-TikTok DM → [transport] → POST /webhook/tiktok → pipeline → { "reply": "..." }
-                                                    ↓
+TikTok DM → Zernio → POST /api/zernio/webhook → 200 (fast) → pipeline
+                                                                ↓
+                                        Zernio send API → the lead's DM
+                                                                ↓
                                      SQLite / CRM handoff / dashboard
 ```
 
-**The transport is pluggable and currently unwired.** The brain (voice,
-intent gate, funnel, phone extraction, CRM handoff) is transport agnostic
-and complete. The plan is to connect **TikTok's Business Messaging API
-directly** once access is approved; until then `POST /webhook/tiktok`
-accepts the simple JSON contract below, which is what the `/testing`
-console uses.
+**Zernio is the TikTok transport.** It is live and wired: it receives the DM,
+this server generates the reply, and this server calls Zernio back to deliver
+it. The brain (voice, intent gate, funnel, phone extraction, CRM handoff) is
+transport agnostic and was not changed to accommodate it.
+
+`POST /webhook/tiktok` still exists as the ManyChat-shaped **testing
+simulator** behind the `/testing` console. It is no longer a public endpoint;
+see [Access control](#access-control).
 
 ## Quick start
 
@@ -26,7 +30,8 @@ npm install
 cp .env.example .env          # add ANTHROPIC_API_KEY
 DEMO_MODE=1 npm run dev       # boots on :3000 with demo data (./data/wesley.db)
 open http://localhost:3000    # the dashboard; /testing simulates fresh leads
-npm test                      # tests, all deterministic (no network)
+npm test                      # 162 tests, all deterministic (no network)
+npm run verify:zernio         # live route checks against a throwaway server
 ```
 
 Storage is **SQLite** at `SQLITE_PATH` (default `./data/wesley.db`; on Fly a
@@ -35,31 +40,123 @@ runs as a single always-on machine — SQLite is single-writer, which matches
 the per-conversation lock design. `STORE=memory` gives an ephemeral store for
 tests and throwaway runs (refused in production).
 
-## Transport: direct TikTok Business Messaging (planned)
+## Transport: the Zernio TikTok inbox
 
-The integration target is TikTok's Business Messaging API, applied for
-directly rather than through a third party inbox. When access is granted,
-the work is confined to one adapter plus one route:
+Zernio is the only route available that can both receive a TikTok DM and reply
+to one, so it is the live transport. The whole integration is one module
+(`src/integrations/zernio/dm.ts`), one route handler
+(`src/app/zernioWebhook.ts`) and the batching window
+(`src/app/messageDebounce.ts`). Nothing in the pipeline changed.
 
-1. Verify TikTok's webhook signature and answer the callback fast.
-2. Map TikTok's payload to `InboundEvent` (stable user id, text, provider
-   message id) — the same shape the pipeline already consumes.
-3. Drop echoes of the business account's own messages.
-4. Call `processInboundEvent` unchanged.
-5. Deliver `outcome.reply` through TikTok's send endpoint.
+### The one architectural fact that shapes it
 
-Everything else — dedupe, per-conversation locking, guards, voice,
-extraction, handoff, dashboard — already exists and does not change.
+ManyChat called this server and sent whatever came back in the response body.
+Zernio inverts that:
 
-Two constraints to design around, from TikTok's own rules: business
-initiated conversations are not permitted (every turn must answer an
-inbound DM, which is exactly how this pipeline behaves), and DM API access
-is unavailable to EEA, Switzerland and UK accounts.
+```
+ManyChat:  POST /webhook/tiktok      -> { reply }   -> ManyChat sends it
+Zernio:    POST /api/zernio/webhook  -> 200 (fast)  -> WE call Zernio to send
+```
 
-## Current webhook contract
+Zernio needs a 2xx **within five seconds** or it retries, and a retried inbound
+is a duplicate DM. A turn here holds a four second batching window and then
+makes two Anthropic calls, so the route acks first and runs everything else off
+the response. Measured ack: single digit milliseconds.
 
-`POST /webhook/tiktok` — the generic transport entry point. It drives the
-`/testing` console today and is what a transport adapter will call.
+### `POST /api/zernio/webhook`
+
+Checks, in order, all before the ack:
+
+| # | Check | Failure |
+|---|-------|---------|
+| 1 | `ZERNIO_WEBHOOK_SECRET` is set | **503** — fails closed, never open |
+| 2 | `X-Zernio-Signature` verifies against the **raw** body | 401 |
+| 3 | Body parses as JSON | 400 |
+| 4 | `message.received`, TikTok, incoming, has a sender | 200 `ignored` |
+| 5 | `account.accountId` equals `ZERNIO_TIKTOK_ACCOUNT_ID` | 200 `ignored` |
+| 6 | Zernio event id not already seen | 200 `duplicate` |
+| 7 | **Ack 200.** Opener recovery, batching, pipeline and send run after. | |
+
+The signature is a lowercase hex HMAC-SHA256 over the exact request bytes,
+compared in constant time. The body is read as a `Buffer` and parsed only after
+the signature clears, because re-serializing a parsed body is not byte
+identical to what was signed.
+
+### Account isolation
+
+Every inbound event is checked against `ZERNIO_TIKTOK_ACCOUNT_ID` before any
+work happens. Anything else gets 200 `ignored` with no lead, no pipeline run and
+no send. An **unset** account id matches nothing at all, so a misconfigured
+server ignores traffic rather than answering someone else's leads.
+
+### The manual VA opener
+
+TikTok does not let a business start a conversation, so a VA opens the thread by
+hand in the app and the agent takes over on the reply. ManyChat passed that
+opener as a webhook field; Zernio has none, so it is read back off the
+conversation: the latest outgoing **text** message sent before the inbound one.
+`seedManualOpener()` then behaves exactly as it always has, seeding once and
+never once an assistant message exists. A failed lookup costs the model one
+piece of context and never costs the lead their reply.
+
+### Rapid messages
+
+People send "hey", then "saw your video", then "im in round rock" over four
+seconds. `InboundBatcher` folds a burst into one turn and one reply; only the
+last delivery in a batch sends. A message that arrives **while a turn is
+running** is queued as the next turn, never dropped, and every provider message
+id in a batch is recorded so none can be replayed.
+
+### Duplicates
+
+Three independent layers, keyed differently so none can cancel another:
+
+1. the route claims Zernio's **event id** before any work
+2. the pipeline claims the **provider message id**, as it always has
+3. the send carries `Idempotency-Key: zernio:{event id}`
+
+### Delivery
+
+`POST /v1/inbox/conversations/{conversationId}/messages` with
+`{"accountId": "...", "message": "..."}`. A `reply: null` sends nothing at all.
+A TikTok **messaging window** rejection (the 48 hour / 10 message rule) is
+reported as `windowClosed` and logged as TikTok refusing, distinctly from an AI
+failure, because nothing is broken: the lead went quiet too long and a human has
+to reopen the thread.
+
+Credentials never leave the transport module. Error strings are bounded and
+scrubbed of bearer tokens and key-shaped values before they reach a log.
+
+### `GET /api/zernio/status`
+
+Dashboard-authenticated. Reports whether the API key and webhook secret are
+configured, the configured account id, whether Zernio auth succeeds, the
+connected TikTok accounts, and whether Wesley's account is present and active.
+It never returns the key or the secret.
+
+## Access control
+
+| Route | Gate |
+|-------|------|
+| `POST /api/zernio/webhook` | HMAC signature only — **never** the dashboard token |
+| `GET /health` | open, for Fly's checker |
+| `/`, `/testing`, `/api/metrics`, `/api/leads`, `/api/leads/:id/conversation`, `/api/testing/state`, `/api/zernio/status` | `DASHBOARD_TOKEN` |
+| `POST /webhook/tiktok` (simulator) | `TESTING_WEBHOOK_SECRET`, a dashboard session, or `DEMO_MODE=1` |
+
+The dashboard token is accepted as `?token=`, `Authorization: Bearer`, or the
+`wesley_dash` cookie. Visiting `/?token=...` once sets that cookie (HttpOnly,
+SameSite=Strict, Secure) so the page's own API calls authenticate without the
+token in every URL.
+
+With `DASHBOARD_TOKEN` unset the dashboard returns **503**, not an open page.
+`DEMO_MODE=1` is the only exception, and it means the instance holds seeded
+data.
+
+## Testing simulator contract
+
+`POST /webhook/tiktok` — the ManyChat-shaped testing simulator. It drives the
+`/testing` console. It is authenticated (see [Access control](#access-control))
+and is not the production transport; Zernio is.
 
 `POST /webhook/tiktok`
 
@@ -123,7 +220,8 @@ and a live leads table with click-through conversation view. Contact values
 are masked (last 4 digits) — it is a monitoring surface, not an export tool.
 
 APIs: `GET /api/metrics`, `GET /api/leads`, `GET /api/leads/:id/conversation`,
-`GET /health`.
+`GET /api/zernio/status`, `GET /health`. All but `/health` require
+`DASHBOARD_TOKEN`.
 
 ## Wesley's voice
 
@@ -154,22 +252,27 @@ hard-coded in the engine). Placeholders are marked `[WESLEY: ...]`:
 
 ## Environment variables
 
-See `.env.example`. Key ones: `ANTHROPIC_API_KEY`, `SQLITE_PATH`,
-`ANTHROPIC_MODEL` (default `claude-haiku-4-5`), `HANDOFF_WEBHOOK_URL`,
-`DEMO_MODE`, `PORT`.
+See `.env.example`. Required in production: `ANTHROPIC_API_KEY`,
+`ZERNIO_DM_API_KEY`, `ZERNIO_WEBHOOK_SECRET`, `ZERNIO_TIKTOK_ACCOUNT_ID`,
+`DASHBOARD_TOKEN`. Also `SQLITE_PATH`, `ANTHROPIC_MODEL` (default
+`claude-haiku-4-5`), `HANDOFF_WEBHOOK_URL`, `TESTING_WEBHOOK_SECRET`,
+`DEMO_MODE`, `PORT`. No real credential is ever committed.
 
 ## Project layout
 
 ```
 src/
-  app/          pipeline, guards, preflight, validator, fallbacks, locks
+  app/          pipeline, guards, preflight, validator, fallbacks, locks,
+                Zernio webhook route, rapid-message batching
   domain/       types, stages, transitions
   modules/      intent gate, opener seeding, contact capture, closeout, qualification
   voice/        example store/retrieval, screenshot ingestion
-  integrations/ webhook adapter, Anthropic client, CRM handoff
+  integrations/ Zernio DM transport, ManyChat adapter, Anthropic client, CRM handoff
+  http/         dashboard and simulator access control
   persistence/  SQLite + in-memory stores, idempotency, handoff jobs
   api/          dashboard metrics/lead APIs
   config/       campaign policy, voice profile
 public/         the Lead Desk dashboard
-tests/          42 tests covering the full required scenario list
+scripts/        verify-zernio-webhook.mjs (live route checks over real HTTP)
+tests/          162 tests covering the full required scenario list
 ```

@@ -484,7 +484,7 @@ async function appendUserMessage(store: Store, lead: Lead, event: InboundEvent):
     role: "user",
     text: event.message,
     providerMessageId: event.providerMessageId,
-    source: "tiktok_manychat",
+    source: event.transport ?? "tiktok_manychat",
     createdAt: now(),
   };
   await store.conversations.appendMessage(message);

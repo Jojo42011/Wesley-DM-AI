@@ -41,13 +41,24 @@ export interface Lead {
   lastOutboundAt: string | null;
 }
 
+/**
+ * Where a stored message came from.
+ *
+ * `tiktok_manychat` is the ManyChat connector and the testing simulator that
+ * speaks its payload shape. `tiktok_zernio` is the Zernio inbox, which is the
+ * live TikTok transport. Both are kept: rows written before the Zernio cutover
+ * are accurate as they stand and are not rewritten, so the label says which
+ * transport actually carried that message rather than which one is current.
+ */
+export type MessageSource = "tiktok_manychat" | "tiktok_zernio" | "manual_seed" | "automation";
+
 export interface Message {
   id: string;
   leadId: string;
   role: "user" | "assistant";
   text: string;
   providerMessageId: string | null;
-  source: "tiktok_manychat" | "manual_seed" | "automation";
+  source: MessageSource;
   createdAt: string;
 }
 
@@ -208,6 +219,12 @@ export interface InboundEvent {
   sourceCampaign: string | null;
   flowKey: string | null;
   isEcho: boolean;
+  /**
+   * Which transport delivered this message, used only to label the stored row.
+   * Optional so every existing caller and test stays valid; absent means the
+   * ManyChat-shaped path, which is what it was before Zernio existed.
+   */
+  transport?: Extract<MessageSource, "tiktok_manychat" | "tiktok_zernio">;
 }
 
 export interface PipelineOutcome {

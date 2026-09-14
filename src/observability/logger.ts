@@ -26,6 +26,8 @@ export type LogEvent =
   | "escalation"
   | "pipeline_complete"
   | "pipeline_error"
+  | "messages_batched"
+  | "zernio_reply_send"
   | "server_started";
 
 export interface LogContext {
