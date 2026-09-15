@@ -89,15 +89,22 @@ work happens. Anything else gets 200 `ignored` with no lead, no pipeline run and
 no send. An **unset** account id matches nothing at all, so a misconfigured
 server ignores traffic rather than answering someone else's leads.
 
-### The manual VA opener
+### How the funnel starts (same as Marco)
 
-TikTok does not let a business start a conversation, so a VA opens the thread by
-hand in the app and the agent takes over on the reply. ManyChat passed that
-opener as a webhook field; Zernio has none, so it is read back off the
-conversation: the latest outgoing **text** message sent before the inbound one.
-`seedManualOpener()` then behaves exactly as it always has, seeding once and
-never once an assistant message exists. A failed lookup costs the model one
-piece of context and never costs the lead their reply.
+TikTok does not let a business **start** a DM. The lead must message first —
+that is the primary path, and it is how Marco's TikTok funnel runs too:
+
+1. Someone DMs `@dulinrealestate` (keyword from a video, "hey", etc.)
+2. Zernio fires `message.received` → this server acks, runs the pipeline, sends
+3. No VA opener is required. `fetchManualOpener()` returns null; the turn still
+   continues. New cold leads pass the intent gate (bare keywords like `SUNSET`
+   are always accepted).
+
+The **optional** VA path is only for when a human already opened the thread in
+the TikTok app. ManyChat used to pass that opener as a webhook field; Zernio
+has none, so it is read back off the conversation (latest outgoing text before
+the inbound). `seedManualOpener()` seeds it once for context. A missing opener
+never blocks the reply — same rule as Marco's `fetchVaOpener`.
 
 ### Rapid messages
 

@@ -23,10 +23,10 @@
  *      after an ambiguous failure replays rather than double sends.
  *
  * TIKTOK'S OWN RULES, inherited and not negotiable:
- *   - Reply only. A business cannot start a conversation. This already matches
- *     how Wesley runs the channel: a VA opens the thread by hand in the app and
- *     the agent takes over on the lead's reply. fetchManualOpener() below reads
- *     that opener back so the stored thread matches what the lead sees.
+ *   - Reply only. A business cannot start a conversation. Primary funnel (same
+ *     as Marco): the lead DMs first → we reply. No VA opener required.
+ *     fetchManualOpener() is optional context for threads a human already
+ *     opened; null opener never blocks the pipeline turn.
  *   - 10 messages within 48 hours of the lead's last message. A send outside
  *     that window fails with TikTok's own error, which we surface as
  *     `windowClosed` rather than letting it read as an AI failure.
