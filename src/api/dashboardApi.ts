@@ -1,5 +1,7 @@
 import type { Store } from "../persistence/types.js";
 import { ConversationStage } from "../domain/types.js";
+import { redact } from "../observability/logger.js";
+import { dashboardIsPublic } from "../http/auth.js";
 
 /**
  * Read-only metrics + lead APIs for the dashboard frontend.
@@ -122,12 +124,23 @@ export async function getTestLeadState(
   };
 }
 
+/**
+ * One lead's full thread.
+ *
+ * A transcript is the one place raw contact details survive: the lead card
+ * masks the captured phone, but "sure its 512 761 8330" sits verbatim in a
+ * message body. While DASHBOARD_PUBLIC=1 has the dashboard open on the bare
+ * URL, those are redacted out of the bodies too, so opening the Lead Desk does
+ * not also publish the leads' phone numbers. Behind the token they are shown
+ * in full, which is what the CRM handoff carries anyway.
+ */
 export async function getLeadConversation(
   store: Store,
   leadId: string,
 ): Promise<unknown | null> {
   const lead = await store.leads.get(leadId);
   if (!lead) return null;
+  const hideContacts = dashboardIsPublic();
   const messages = await store.conversations.getMessages(leadId, 100);
   return {
     lead: {
@@ -142,7 +155,7 @@ export async function getLeadConversation(
     },
     messages: messages.map((m) => ({
       role: m.role,
-      text: m.text,
+      text: hideContacts ? redact(m.text) : m.text,
       source: m.source,
       createdAt: m.createdAt,
     })),

@@ -7,7 +7,15 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { IncomingMessage } from "node:http";
-import { checkDashboardAuth, checkSimulatorAuth, DASHBOARD_COOKIE } from "../src/http/auth.js";
+import {
+  checkAdminAuth,
+  checkDashboardAuth,
+  checkSimulatorAuth,
+  DASHBOARD_COOKIE,
+} from "../src/http/auth.js";
+import { getLeadConversation } from "../src/api/dashboardApi.js";
+import { MemoryStore } from "../src/persistence/memory.js";
+import { makeLead, makeMessage } from "./helpers.js";
 
 const TOKEN = "dash-token-abc123";
 
@@ -22,11 +30,13 @@ beforeEach(() => {
   delete process.env.DASHBOARD_TOKEN;
   delete process.env.TESTING_WEBHOOK_SECRET;
   delete process.env.DEMO_MODE;
+  delete process.env.DASHBOARD_PUBLIC;
 });
 afterEach(() => {
   delete process.env.DASHBOARD_TOKEN;
   delete process.env.TESTING_WEBHOOK_SECRET;
   delete process.env.DEMO_MODE;
+  delete process.env.DASHBOARD_PUBLIC;
 });
 
 describe("dashboard access", () => {
@@ -93,5 +103,64 @@ describe("the testing simulator", () => {
 
   it("75. reports not_configured when neither secret exists, so it cannot be left open by accident", () => {
     expect(checkSimulatorAuth(req(), at("/webhook/tiktok"))).toBe("not_configured");
+  });
+});
+
+describe("DASHBOARD_PUBLIC — the Lead Desk on the bare URL", () => {
+  it("76. opens the dashboard and its read APIs with no token", () => {
+    process.env.DASHBOARD_TOKEN = TOKEN;
+    process.env.DASHBOARD_PUBLIC = "1";
+    expect(checkDashboardAuth(req(), at("/"))).toBe("ok");
+    expect(checkDashboardAuth(req(), at("/api/leads"))).toBe("ok");
+    expect(checkDashboardAuth(req(), at("/api/metrics"))).toBe("ok");
+  });
+
+  it("77. does NOT open the simulator, which creates leads and spends credits", () => {
+    process.env.DASHBOARD_TOKEN = TOKEN;
+    process.env.DASHBOARD_PUBLIC = "1";
+    expect(checkSimulatorAuth(req(), at("/webhook/tiktok"))).toBe("unauthorized");
+    expect(
+      checkSimulatorAuth(req({ authorization: `Bearer ${TOKEN}` }), at("/webhook/tiktok")),
+    ).toBe("ok");
+  });
+
+  it("78. does NOT open the Zernio status endpoint", () => {
+    process.env.DASHBOARD_TOKEN = TOKEN;
+    process.env.DASHBOARD_PUBLIC = "1";
+    expect(checkAdminAuth(req(), at("/api/zernio/status"))).toBe("unauthorized");
+    expect(checkAdminAuth(req({ authorization: `Bearer ${TOKEN}` }), at("/api/zernio/status"))).toBe("ok");
+  });
+
+  it("79. redacts contact details out of transcripts while the dashboard is public", async () => {
+    const store = new MemoryStore();
+    const lead = makeLead({ phone: "+15127618330" });
+    await store.leads.create(lead);
+    await store.conversations.appendMessage(
+      makeMessage({ leadId: lead.id, role: "user", text: "sure its 512 761 8330 or jane@example.com" }),
+    );
+
+    process.env.DASHBOARD_PUBLIC = "1";
+    const open = (await getLeadConversation(store, lead.id)) as { messages: { text: string }[] };
+    expect(open.messages[0]!.text).not.toContain("761");
+    expect(open.messages[0]!.text).not.toContain("jane@example.com");
+    expect(open.messages[0]!.text).toContain("[phone]");
+    expect(open.messages[0]!.text).toContain("[email]");
+
+    delete process.env.DASHBOARD_PUBLIC;
+    const locked = (await getLeadConversation(store, lead.id)) as { messages: { text: string }[] };
+    /* Behind the token the thread reads exactly as the lead typed it. */
+    expect(locked.messages[0]!.text).toContain("512 761 8330");
+  });
+
+  it("80. leaves the lead card masked either way", async () => {
+    const store = new MemoryStore();
+    const lead = makeLead({ phone: "+15127618330" });
+    await store.leads.create(lead);
+    for (const mode of ["1", undefined]) {
+      if (mode) process.env.DASHBOARD_PUBLIC = mode;
+      else delete process.env.DASHBOARD_PUBLIC;
+      const r = (await getLeadConversation(store, lead.id)) as { lead: { phone: string } };
+      expect(r.lead.phone).toBe("•••• 8330");
+    }
   });
 });

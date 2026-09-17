@@ -30,7 +30,7 @@ npm install
 cp .env.example .env          # add ANTHROPIC_API_KEY
 DEMO_MODE=1 npm run dev       # boots on :3000 with demo data (./data/wesley.db)
 open http://localhost:3000    # the dashboard; /testing simulates fresh leads
-npm test                      # 162 tests, all deterministic (no network)
+npm test                      # 167 tests, all deterministic (no network)
 npm run verify:zernio         # live route checks against a throwaway server
 ```
 
@@ -152,6 +152,23 @@ With `DASHBOARD_TOKEN` unset the dashboard returns **503**, not an open page.
 `DEMO_MODE=1` is the only exception, and it means the instance holds seeded
 data.
 
+### `DASHBOARD_PUBLIC=1`
+
+Opens the Lead Desk on the bare URL with no token, which is how production
+runs today. It is a deliberate trade and it opens the **read** surface only:
+
+- `/`, `/testing`, `/api/metrics`, `/api/leads`, `/api/leads/:id/conversation`
+  and `/api/testing/state` need no token
+- `POST /webhook/tiktok` and `GET /api/zernio/status` stay behind
+  `DASHBOARD_TOKEN` regardless, because one creates leads and spends Anthropic
+  credits and the other describes the transport configuration
+- `POST /api/zernio/webhook` is unaffected; it has always been HMAC gated
+
+Because a transcript is the one place raw contact details survive, phone
+numbers and email addresses are redacted out of **message bodies** while this
+is on, not just off the lead card. Every conversation still reads normally.
+Unset the flag and the token flow returns, transcripts included.
+
 ## Testing simulator contract
 
 `POST /webhook/tiktok` — the ManyChat-shaped testing simulator. It drives the
@@ -254,7 +271,7 @@ hard-coded in the engine). Placeholders are marked `[WESLEY: ...]`:
 
 See `.env.example`. Required in production: `ANTHROPIC_API_KEY`,
 `ZERNIO_DM_API_KEY`, `ZERNIO_WEBHOOK_SECRET`, `ZERNIO_TIKTOK_ACCOUNT_ID`,
-`DASHBOARD_TOKEN`. Also `SQLITE_PATH`, `ANTHROPIC_MODEL` (default
+`DASHBOARD_TOKEN`. Also `DASHBOARD_PUBLIC`, `SQLITE_PATH`, `ANTHROPIC_MODEL` (default
 `claude-haiku-4-5`), `HANDOFF_WEBHOOK_URL`, `TESTING_WEBHOOK_SECRET`,
 `DEMO_MODE`, `PORT`. No real credential is ever committed.
 
@@ -274,5 +291,5 @@ src/
   config/       campaign policy, voice profile
 public/         the Lead Desk dashboard
 scripts/        verify-zernio-webhook.mjs (live route checks over real HTTP)
-tests/          162 tests covering the full required scenario list
+tests/          167 tests covering the full required scenario list
 ```

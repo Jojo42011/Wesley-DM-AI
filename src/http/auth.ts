@@ -75,7 +75,36 @@ function cookieValue(req: IncomingMessage, name: string): string {
 
 export type AuthOutcome = "ok" | "unauthorized" | "not_configured";
 
+/**
+ * DASHBOARD_PUBLIC=1 opens the Lead Desk on the bare URL, with no token.
+ *
+ * This is a deliberate, operator-chosen trade. It means anyone who knows
+ * https://wesley-dm-ai.fly.dev can read the lead list and the conversations,
+ * so while it is on, getLeadConversation() redacts phone numbers and email
+ * addresses out of the message bodies as well as off the lead card. Wesley can
+ * still read every conversation; what stops being published is his leads'
+ * contact details.
+ *
+ * It opens the READ surface only. Two things stay behind the token no matter
+ * what, and neither is "the main link":
+ *   - POST /webhook/tiktok, which creates leads and spends Anthropic credits
+ *   - GET /api/zernio/status, which describes the transport configuration
+ * Those use checkAdminAuth() below, which ignores this flag entirely.
+ */
+export function dashboardIsPublic(): boolean {
+  return process.env.DASHBOARD_PUBLIC === "1";
+}
+
 export function checkDashboardAuth(req: IncomingMessage, url: URL): AuthOutcome {
+  if (dashboardIsPublic()) return "ok";
+  return checkAdminAuth(req, url);
+}
+
+/**
+ * The strict check, unaffected by DASHBOARD_PUBLIC. Used for the routes that
+ * write, spend money, or describe the transport.
+ */
+export function checkAdminAuth(req: IncomingMessage, url: URL): AuthOutcome {
   /* A demo instance holds only seeded data and exists to be looked at. */
   if (demoMode() && !dashboardAuthConfigured()) return "ok";
   const expected = dashboardToken();
@@ -123,9 +152,11 @@ export function checkSimulatorAuth(req: IncomingMessage, url: URL): AuthOutcome 
     if (presented && safeEqual(presented, secret)) return "ok";
   }
 
-  /* Whoever can read every conversation on the dashboard can also drive the
-     simulator; withholding it from them protects nothing. */
-  if (dashboardAuthConfigured() && checkDashboardAuth(req, url) === "ok") return "ok";
+  /* Whoever holds the dashboard token can also drive the simulator; withholding
+     it from them protects nothing. Deliberately checkAdminAuth, not
+     checkDashboardAuth: opening the dashboard to the public must never open an
+     endpoint that creates leads and spends Anthropic credits. */
+  if (dashboardAuthConfigured() && checkAdminAuth(req, url) === "ok") return "ok";
 
   return secret || dashboardAuthConfigured() ? "unauthorized" : "not_configured";
 }

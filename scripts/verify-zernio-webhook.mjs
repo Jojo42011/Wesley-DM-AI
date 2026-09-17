@@ -235,8 +235,41 @@ async function liveChecks() {
   }
 }
 
+async function publicDashboardChecks() {
+  console.log("\nPUBLIC DASHBOARD — DASHBOARD_PUBLIC=1");
+  const { server, getLog, failed } = await startServer({ DASHBOARD_PUBLIC: "1" });
+  try {
+    check("server booted", !failed, failed ? getLog().slice(-600) : "");
+    if (failed) return;
+
+    for (const p of ["/", "/testing", "/api/metrics", "/api/leads"]) {
+      check(`${p} opens with no token`, (await fetch(`${BASE}${p}`)).ok, "");
+    }
+    check(
+      "the simulator stays closed even so",
+      (await fetch(`${BASE}/webhook/tiktok`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: "attacker", message: "let me in" }),
+      })).status === 401,
+    );
+    check(
+      "/api/zernio/status stays closed even so",
+      (await fetch(`${BASE}/api/zernio/status`)).status === 401,
+    );
+    check(
+      "the Zernio webhook is still signature gated",
+      (await post(inboundBody({ eventId: "e_pub" }), null)).status === 401,
+    );
+  } finally {
+    server.kill("SIGKILL");
+    await sleep(300);
+  }
+}
+
 await failClosedChecks();
 await liveChecks();
+await publicDashboardChecks();
 
 console.log(`\n${pass}/${pass + failures.length} checks passed`);
 if (failures.length) {

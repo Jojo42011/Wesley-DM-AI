@@ -9,8 +9,10 @@ import { ExampleStore } from "./voice/exampleStore.js";
 import { handleTikTokWebhook } from "./app/tiktokWebhook.js";
 import { ZernioWebhookHandler } from "./app/zernioWebhook.js";
 import {
+  checkAdminAuth,
   checkDashboardAuth,
   checkSimulatorAuth,
+  dashboardIsPublic,
   maybeSetDashboardCookie,
   type AuthOutcome,
 } from "./http/auth.js";
@@ -170,8 +172,11 @@ async function main(): Promise<void> {
       /* ------------------------------------------- everything below is gated */
       const auth = checkDashboardAuth(req, url);
 
+      /* Deliberately checkAdminAuth: the transport configuration stays behind
+         the token even when the Lead Desk is public. */
       if (route === "GET /api/zernio/status") {
-        if (auth !== "ok") return denyAuth(res, auth, "The Zernio status endpoint");
+        const admin = checkAdminAuth(req, url);
+        if (admin !== "ok") return denyAuth(res, admin, "The Zernio status endpoint");
         const configuredId = zernioTikTokAccountId();
         const accounts = await zernioAccounts();
         const tiktokAccounts = accounts.accounts.filter((a) => a.platform.toLowerCase() === "tiktok");
@@ -246,6 +251,7 @@ async function main(): Promise<void> {
       zernioWebhookOpen: zernioWebhookSecretConfigured(),
       zernioAccountPinned: Boolean(zernioTikTokAccountId()),
       dashboardLocked: Boolean(process.env.DASHBOARD_TOKEN?.trim()),
+      dashboardPublic: dashboardIsPublic(),
     });
   });
 }
