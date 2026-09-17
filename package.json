@@ -1,7 +1,7 @@
 {
   "name": "wesley-dm-ai",
   "version": "1.0.0",
-  "description": "TikTok DM automation for Wesley \u2014 converts inbound leads into contact info over the Zernio TikTok inbox, with a metrics dashboard.",
+  "description": "TikTok DM automation for Wesley — converts inbound leads into contact info over the Zernio TikTok inbox, with a metrics dashboard.",
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
@@ -25,6 +25,7 @@
   "devDependencies": {
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^22.0.0",
+    "playwright": "^1.47.2",
     "tsx": "^4.19.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"

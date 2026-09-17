@@ -2,8 +2,9 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>The Branch · Lead Dashboard</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 44 44'%3E%3Ccircle cx='22' cy='22' r='21' fill='%231e3b28' stroke='%23b98a2f' stroke-width='2'/%3E%3Ctext x='22' y='29' text-anchor='middle' font-family='Georgia,serif' font-size='22' font-weight='700' fill='%23f5f2e8'%3EB%3C/text%3E%3C/svg%3E" />
 <style>
   :root {
     --bg: #f4f6f4;
@@ -20,13 +21,30 @@
     --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px; }
-  .wrap { max-width: 1200px; margin: 0 auto; padding: 0 20px 48px; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--bg); color: var(--text); font-family: var(--sans); font-size: 14px;
+    overflow-x: hidden;
+  }
+  /* Side gutters never collapse, and notched phones keep their inset. */
+  .wrap {
+    max-width: 1200px; margin: 0 auto;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-bottom: calc(48px + env(safe-area-inset-bottom, 0px));
+  }
+  @media (min-width: 720px) { .wrap { padding-left: 20px; padding-right: 20px; } }
 
   /* ---------- header ---------- */
   header {
-    display: flex; align-items: center; justify-content: space-between;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    flex-wrap: wrap;
     padding: 14px 0; margin-bottom: 18px; border-bottom: 1px solid var(--border);
+  }
+  .header-right { display: flex; align-items: center; gap: 16px; }
+  @media (max-width: 560px) {
+    .brand .titles h1 { font-size: 15px; }
+    .header-right { width: 100%; justify-content: space-between; gap: 10px; }
   }
   .brand { display: flex; align-items: center; gap: 12px; }
   .brand .titles h1 { font-size: 17px; font-weight: 700; color: var(--green); letter-spacing: .01em; }
@@ -34,30 +52,57 @@
   .status { display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-2); }
   .pulse { width: 7px; height: 7px; border-radius: 50%; background: #3a9c62; }
   .test-btn {
-    display: inline-block; background: var(--green); color: #fff; text-decoration: none;
-    font-size: 13px; font-weight: 600; padding: 8px 14px; border-radius: 6px;
+    display: inline-flex; align-items: center; background: var(--green); color: #fff;
+    text-decoration: none; font-size: 13px; font-weight: 600; padding: 0 16px;
+    border-radius: 6px; min-height: 44px;  /* comfortable tap target */
   }
   .test-btn:hover { background: #2a5238; }
 
   /* ---------- KPI cards ---------- */
-  .kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 12px; }
-  @media (max-width: 900px) { .kpis { grid-template-columns: 1fr 1fr; } }
+  .kpis { display: grid; grid-template-columns: 1fr 1fr 1.1fr; gap: 12px; margin-bottom: 12px; }
   .kpi {
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 14px 16px;
+    padding: 14px 16px; display: flex; flex-direction: column; justify-content: center;
   }
   .kpi .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--text-3); }
-  .kpi .value { font-size: 30px; font-weight: 700; color: var(--green); margin: 6px 0 2px; font-variant-numeric: tabular-nums; }
+  .kpi .value { font-size: 34px; font-weight: 700; color: var(--green); margin: 6px 0 2px; font-variant-numeric: tabular-nums; line-height: 1.05; }
   .kpi .sub { font-size: 12px; color: var(--text-2); }
   .kpi .sub b { color: var(--text); }
+  /* Tablet: the two numbers share a row, the donut takes the next one whole. */
+  @media (max-width: 900px) {
+    .kpis { grid-template-columns: 1fr 1fr; }
+    .kpi-donut { grid-column: 1 / -1; }
+  }
+  @media (max-width: 480px) {
+    .kpis { grid-template-columns: 1fr; }
+    .kpi { padding: 13px 14px; }
+    .kpi .value { font-size: 30px; }
+  }
+
+  /* ---------- conversion donut ---------- */
+  .kpi-donut { padding: 14px 16px; }
+  .donut-wrap { display: flex; align-items: center; gap: 16px; margin-top: 8px; }
+  .donut-wrap svg { flex: 0 0 auto; width: 104px; height: 104px; }
+  /* The hero number alone. The card heading and the legend already name what
+     the share is, so a second label inside the hole is redundant and, at 92px,
+     crowds the ring. */
+  .donut-center-value { font-size: 23px; font-weight: 700; fill: var(--green); }
+  .donut-legend { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
+  .donut-legend .row { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+  .donut-legend .row .swatch { width: 9px; height: 9px; border-radius: 2px; flex: 0 0 auto; }
+  .donut-legend .row b { color: var(--text); font-variant-numeric: tabular-nums; }
+  @media (max-width: 380px) {
+    .donut-wrap { gap: 12px; }
+    .donut-wrap svg { width: 92px; height: 92px; }
+  }
 
   /* ---------- layout / cards ---------- */
   .grid { display: grid; grid-template-columns: 1.7fr 1fr; gap: 12px; margin-bottom: 12px; }
   @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
-  .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
   .card-head h2 { font-size: 13px; font-weight: 700; color: var(--text); }
-  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-2); }
+  .legend { display: flex; gap: 14px; font-size: 12px; color: var(--text-2); flex-wrap: wrap; }
   .legend span { display: inline-flex; align-items: center; gap: 6px; }
 
   /* ---------- chart ---------- */
@@ -73,15 +118,23 @@
   #tooltip .t-row b { font-weight: 600; font-variant-numeric: tabular-nums; }
 
   /* ---------- leads panel (fixed height, internal scroll) ---------- */
-  .leads-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .leads-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
   .leads-head .left { display: flex; align-items: baseline; gap: 10px; }
   .leads-head .count { font-size: 12px; color: var(--text-3); }
   #search {
-    border: 1px solid var(--border); border-radius: 6px; padding: 7px 10px; font-size: 13px;
+    border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px;
     font-family: var(--sans); color: var(--text); width: 220px; outline: none; background: #fff;
+    /* 16px keeps iOS Safari from zooming the page when the field is focused. */
+    font-size: 16px; min-height: 44px;
   }
   #search:focus { border-color: var(--green-mid); }
-  .table-scroll { max-height: 430px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px; }
+  @media (min-width: 720px) { #search { font-size: 13px; } }
+  @media (max-width: 560px) { #search { width: 100%; } }
+  .table-scroll {
+    max-height: 430px; overflow-y: auto; border: 1px solid var(--border); border-radius: 6px;
+    -webkit-overflow-scrolling: touch;
+  }
+  @media (max-width: 560px) { .table-scroll { max-height: 60vh; } }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   thead th {
     position: sticky; top: 0; z-index: 2; background: #fafbfa;
@@ -89,6 +142,14 @@
     color: var(--text-3); padding: 9px 12px; border-bottom: 1px solid var(--border);
   }
   tbody td { padding: 9px 12px; border-bottom: 1px solid #eef1ee; color: var(--text-2); }
+  /* Narrow screens drop intent and arrival time rather than squeezing five
+     columns into 360px: who, where they are, and whether there is a number. */
+  @media (max-width: 700px) {
+    th.col-intent, td.col-intent, th.col-time, td.col-time { display: none; }
+    tbody td { padding: 12px 11px; }   /* taller rows are easier to tap */
+    thead th { padding: 9px 11px; }
+    td.lead-name .handle { display: block; margin-top: 2px; }
+  }
   tbody tr:last-child td { border-bottom: none; }
   tbody tr { cursor: pointer; }
   tbody tr:hover { background: #f6f8f6; }
@@ -114,12 +175,21 @@
     box-shadow: -8px 0 24px rgba(23,32,26,.08);
   }
   #drawer.open { right: 0; }
+  @media (max-width: 560px) {
+    #drawer { width: 100%; max-width: 100%; right: -100%; }
+    #drawer .d-head { padding-top: calc(18px + env(safe-area-inset-top, 0px)); }
+    #drawer .d-body { padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
+    .bubble { max-width: 92%; }
+  }
   #drawer .d-head { padding: 18px 20px 14px; border-bottom: 1px solid var(--border); }
   #drawer .d-head h3 { font-size: 16px; font-weight: 700; color: var(--green); }
   #drawer .d-head .meta { font-size: 12px; color: var(--text-3); margin-top: 4px; }
   #drawer .d-close {
     position: absolute; top: 14px; right: 14px; background: #fff; border: 1px solid var(--border);
-    color: var(--text-2); border-radius: 6px; width: 28px; height: 28px; cursor: pointer; font-size: 13px;
+    color: var(--text-2); border-radius: 6px; width: 34px; height: 34px; cursor: pointer; font-size: 14px;
+  }
+  @media (max-width: 560px) {
+    #drawer .d-close { top: calc(14px + env(safe-area-inset-top, 0px)); width: 40px; height: 40px; }
   }
   #drawer .d-body { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 8px; background: #fafbfa; }
   .bubble { max-width: 85%; padding: 8px 12px; border-radius: 10px; font-size: 13px; line-height: 1.45; }
@@ -130,7 +200,7 @@
   #overlay.show { opacity: 1; pointer-events: auto; }
 
   .empty { padding: 40px 0; text-align: center; color: var(--text-3); font-size: 13px; }
-  footer { margin-top: 20px; font-size: 11px; color: var(--text-3); display: flex; justify-content: space-between; }
+  footer { margin-top: 20px; font-size: 11px; color: var(--text-3); display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
@@ -148,7 +218,7 @@
         <div class="sub">TikTok Lead Dashboard</div>
       </div>
     </div>
-    <div style="display:flex;align-items:center;gap:16px">
+    <div class="header-right">
       <div class="status"><span class="pulse"></span><span id="last-updated">connecting…</span></div>
       <a href="/testing" class="test-btn">Test the agent</a>
     </div>
@@ -156,24 +226,41 @@
 
   <section class="kpis" aria-label="Key metrics">
     <div class="kpi">
-      <div class="label">Numbers Captured</div>
-      <div class="value" id="kpi-captured">—</div>
-      <div class="sub"><b id="kpi-rate">—</b> capture rate</div>
-    </div>
-    <div class="kpi">
-      <div class="label">Total Leads</div>
-      <div class="value" id="kpi-leads">—</div>
+      <div class="label">Total Conversations</div>
+      <div class="value" id="kpi-convos">—</div>
       <div class="sub"><b id="kpi-msgs">—</b> messages exchanged</div>
     </div>
     <div class="kpi">
-      <div class="label">Active Conversations</div>
-      <div class="value" id="kpi-active">—</div>
-      <div class="sub">working toward a number</div>
+      <div class="label">Numbers Captured</div>
+      <div class="value" id="kpi-captured">—</div>
+      <div class="sub">from those conversations</div>
     </div>
-    <div class="kpi">
-      <div class="label">Needs Attention</div>
-      <div class="value" id="kpi-review">—</div>
-      <div class="sub"><b id="kpi-optout">—</b> opted out</div>
+
+    <!-- One proportion, so: a donut with the number in the middle. The legend
+         carries both counts, so the split never rests on colour alone. -->
+    <div class="kpi kpi-donut">
+      <div class="label">Conversations → Numbers</div>
+      <div class="donut-wrap">
+        <svg viewBox="0 0 104 104" role="img" aria-labelledby="donut-title">
+          <title id="donut-title">Share of conversations that gave up a phone number</title>
+          <circle cx="52" cy="52" r="42" fill="none" stroke="#eef1ee" stroke-width="13"/>
+          <circle id="donut-rest" cx="52" cy="52" r="42" fill="none" stroke="#c9cfc9"
+                  stroke-width="13" stroke-linecap="butt" transform="rotate(-90 52 52)"/>
+          <circle id="donut-captured" cx="52" cy="52" r="42" fill="none" stroke="#b98a2f"
+                  stroke-width="13" stroke-linecap="butt" transform="rotate(-90 52 52)"/>
+          <text class="donut-center-value" id="donut-pct" x="52" y="60" text-anchor="middle">—</text>
+        </svg>
+        <div class="donut-legend">
+          <div class="row">
+            <span class="swatch" style="background:#b98a2f"></span>
+            <span>Number collected</span><b id="donut-yes">—</b>
+          </div>
+          <div class="row">
+            <span class="swatch" style="background:#c9cfc9"></span>
+            <span>Still talking</span><b id="donut-no">—</b>
+          </div>
+        </div>
+      </div>
     </div>
   </section>
 
@@ -187,7 +274,7 @@
         </div>
       </div>
       <div class="chart-box">
-        <svg id="flow-chart" width="100%" height="250" role="img" aria-label="New leads and captured numbers per day, last 14 days"></svg>
+        <svg id="flow-chart" width="100%" height="250" style="display:block" role="img" aria-label="New leads and captured numbers per day, last 14 days"></svg>
         <div id="tooltip"></div>
       </div>
     </div>
@@ -201,7 +288,7 @@
     <div class="table-scroll">
       <table aria-label="Leads">
         <thead>
-          <tr><th>Lead</th><th>Intent</th><th>Stage</th><th>Contact</th><th>Arrived</th></tr>
+          <tr><th>Lead</th><th class="col-intent">Intent</th><th>Stage</th><th>Contact</th><th class="col-time">Arrived</th></tr>
         </thead>
         <tbody id="lead-rows"></tbody>
       </table>
@@ -271,20 +358,47 @@ async function refresh() {
 
 function renderKpis(m) {
   const t = m.totals;
-  document.getElementById("kpi-captured").textContent = fmt.format(t.captured);
-  document.getElementById("kpi-rate").textContent = pct(t.captureRate);
-  document.getElementById("kpi-leads").textContent = fmt.format(t.leads);
+  document.getElementById("kpi-convos").textContent = fmt.format(t.leads);
   document.getElementById("kpi-msgs").textContent = fmt.format(t.messagesIn + t.messagesOut);
-  document.getElementById("kpi-active").textContent = fmt.format(t.active);
-  document.getElementById("kpi-review").textContent = fmt.format(t.humanReview);
-  document.getElementById("kpi-optout").textContent = fmt.format(t.optedOut);
+  document.getElementById("kpi-captured").textContent = fmt.format(t.captured);
+  renderDonut(t.leads, t.captured);
+}
+
+/* ---------------- conversion donut: captured vs still talking ----------------
+   One proportion, two segments, and the real number in the middle rather than
+   on the arc. The remainder is a recessive neutral, not a second brand colour:
+   it is "the rest of the whole", not a competing category. A 2px surface gap
+   separates the two arcs so the boundary reads without relying on hue. */
+const DONUT_R = 42;
+const DONUT_C = 2 * Math.PI * DONUT_R;
+function renderDonut(total, captured) {
+  const rest = Math.max(0, total - captured);
+  const frac = total > 0 ? captured / total : 0;
+  /* Only put a gap in when there are genuinely two arcs to separate. */
+  const gap = total > 0 && captured > 0 && rest > 0 ? 2 : 0;
+
+  const arc = (el, length, offset) => {
+    el.setAttribute("stroke-dasharray", `${Math.max(0, length)} ${DONUT_C}`);
+    el.setAttribute("stroke-dashoffset", String(offset));
+  };
+  arc(document.getElementById("donut-captured"), frac * DONUT_C - gap, -gap / 2);
+  arc(document.getElementById("donut-rest"), (1 - frac) * DONUT_C - gap, -(frac * DONUT_C + gap / 2));
+
+  document.getElementById("donut-pct").textContent = total > 0 ? pct(frac) : "—";
+  document.getElementById("donut-yes").textContent = fmt.format(captured);
+  document.getElementById("donut-no").textContent = fmt.format(rest);
 }
 
 /* ------------- line chart: solid green = leads, dashed gold = captured ------------- */
 let chartState = null;
 function renderChart(daily) {
   const svg = document.getElementById("flow-chart");
-  const W = svg.clientWidth || 700, H = 250, P = { t: 14, r: 10, b: 28, l: 30 };
+  const W = svg.clientWidth || 700;
+  /* A 250px plot eats most of a phone screen, so it shrinks with the viewport. */
+  const narrow = W < 560;
+  const H = narrow ? 190 : 250;
+  const P = { t: 14, r: 10, b: 26, l: narrow ? 26 : 30 };
+  svg.setAttribute("height", String(H));
   svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
   const iw = W - P.l - P.r, ih = H - P.t - P.b;
   const maxY = Math.max(3, ...daily.map((d) => Math.max(d.leads, d.captured)));
@@ -302,8 +416,10 @@ function renderChart(daily) {
     g += `<line x1="${P.l}" x2="${W - P.r}" y1="${y(v)}" y2="${y(v)}" stroke="#eef1ee" stroke-width="1"/>` +
          `<text x="${P.l - 8}" y="${y(v) + 4}" font-size="10" fill="#8a938c" text-anchor="end">${v}</text>`;
   }
+  /* Date labels thin out until they stop colliding: every 4th day on a phone. */
+  const labelEvery = W < 420 ? 4 : narrow ? 3 : 2;
   daily.forEach((d, i) => {
-    if (i % 2 === 0) {
+    if (i % labelEvery === 0) {
       const dt = new Date(d.date + "T00:00:00");
       g += `<text x="${x(i)}" y="${H - 8}" font-size="10" fill="#8a938c" text-anchor="middle">${dt.toLocaleDateString([], { month: "short", day: "numeric" })}</text>`;
     }
@@ -320,12 +436,12 @@ function renderChart(daily) {
   chartState = { daily, x, y, P, W, H };
 }
 
-document.getElementById("flow-chart").addEventListener("mousemove", (ev) => {
+function moveChartHover(ev, clientX) {
   if (!chartState) return;
   const { daily, x, y, P, W } = chartState;
   const rect = ev.currentTarget.getBoundingClientRect();
   const scale = W / rect.width;
-  const mx = (ev.clientX - rect.left) * scale;
+  const mx = (clientX - rect.left) * scale;
   let idx = Math.round(((mx - P.l) / (W - P.l - P.r)) * (daily.length - 1));
   idx = Math.max(0, Math.min(daily.length - 1, idx));
   const d = daily[idx];
@@ -346,17 +462,31 @@ document.getElementById("flow-chart").addEventListener("mousemove", (ev) => {
     <div class="t-row"><span style="color:#2e8b57">New leads</span><b>${d.leads}</b></div>
     <div class="t-row"><span style="color:#b98a2f">Captured</span><b>${d.captured}</b></div>`;
   const boxRect = ev.currentTarget.parentElement.getBoundingClientRect();
+  const tipW = tip.offsetWidth || 150;
   let left = ((x(idx) / W) * rect.width) + 12;
-  if (left > boxRect.width - 160) left -= 180;
+  if (left + tipW > boxRect.width) left = Math.max(0, left - tipW - 24);
   tip.style.left = left + "px";
   tip.style.top = "22px";
   tip.style.opacity = "1";
-});
-document.getElementById("flow-chart").addEventListener("mouseleave", () => {
+}
+
+function clearChartHover() {
   document.getElementById("tooltip").style.opacity = "0";
   const c = document.getElementById("crosshair"); if (c) c.setAttribute("opacity", "0");
   const d = document.getElementById("hover-dots"); if (d) d.setAttribute("opacity", "0");
-});
+}
+
+const chartEl = document.getElementById("flow-chart");
+chartEl.addEventListener("mousemove", (ev) => moveChartHover(ev, ev.clientX));
+chartEl.addEventListener("mouseleave", clearChartHover);
+/* Touch gets the same crosshair by dragging along the plot. Not passive,
+   because the drag has to scrub the chart rather than scroll the page. */
+chartEl.addEventListener("touchstart", (ev) => moveChartHover(ev, ev.touches[0].clientX), { passive: true });
+chartEl.addEventListener("touchmove", (ev) => {
+  ev.preventDefault();
+  moveChartHover(ev, ev.touches[0].clientX);
+}, { passive: false });
+chartEl.addEventListener("touchend", clearChartHover);
 
 /* ------------------------------ table ------------------------------ */
 function renderTable() {
@@ -376,10 +506,10 @@ function renderTable() {
     const stageColor = STAGE_COLORS[l.stage] || "#8a938c";
     return `<tr onclick="openDrawer('${l.id}')">
       <td class="lead-name">${esc(l.displayName || l.username)} <span class="handle">@${esc(l.username)}</span></td>
-      <td>${intent ? `<span class="chip ${intent}">${intent}</span>` : `<span class="chip">—</span>`}</td>
+      <td class="col-intent">${intent ? `<span class="chip ${intent}">${intent}</span>` : `<span class="chip">—</span>`}</td>
       <td><span class="badge"><span class="dot" style="background:${stageColor}"></span>${STAGE_LABELS[l.stage] || l.stage}</span></td>
       <td>${l.hasContact ? `<span class="contact-yes">${esc(l.phone || l.email)}</span>` : `<span class="contact-no">pending</span>`}</td>
-      <td class="time">${relTime(l.createdAt)}</td>
+      <td class="time col-time">${relTime(l.createdAt)}</td>
     </tr>`;
   }).join("");
 }
@@ -413,7 +543,9 @@ document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeDrawe
 
 refresh();
 setInterval(refresh, 15000);
-window.addEventListener("resize", () => { if (chartState) renderChart(chartState.daily); });
+const rerenderChart = () => { if (chartState) renderChart(chartState.daily); };
+window.addEventListener("resize", rerenderChart);
+window.addEventListener("orientationchange", rerenderChart);
 </script>
 </body>
 </html>
