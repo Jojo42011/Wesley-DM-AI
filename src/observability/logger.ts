@@ -28,6 +28,10 @@ export type LogEvent =
   | "pipeline_error"
   | "messages_batched"
   | "zernio_reply_send"
+  | "comment_agent_replied"
+  | "comment_agent_post_failed"
+  | "comment_agent_outcome"
+  | "comment_to_dm_converted"
   | "server_started";
 
 export interface LogContext {

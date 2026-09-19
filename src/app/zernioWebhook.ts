@@ -15,10 +15,11 @@
  *   1. webhook secret configured?     no -> 503, fail closed
  *   2. X-Zernio-Signature valid?      no -> 401
  *   3. body parses as JSON?           no -> 400
- *   4. an actionable message.received?  no -> 200 ignored (never retry this)
- *   5. our TikTok account?            no -> 200 ignored, account isolation
- *   6. event already seen?            yes -> 200 duplicate
- *   7. ACK 200. Everything after this line runs off the response.
+ *   4. comment.received?              yes -> ack, comment agent after
+ *   5. an actionable message.received?  no -> 200 ignored (never retry this)
+ *   6. our TikTok account?            no -> 200 ignored, account isolation
+ *   7. event already seen?            yes -> 200 duplicate
+ *   8. ACK 200. Everything after this line runs off the response.
  *
  * Steps 1 to 6 are a hash, a JSON.parse and one indexed SQLite write. Opener
  * recovery, batching, the pipeline and the outbound send all live after step 7.
@@ -54,6 +55,9 @@ import {
   type ZernioInboundMessage,
   type ZernioSendResult,
 } from "../integrations/zernio/dm.js";
+import { parseZernioInboundComment } from "../integrations/zernio/comments.js";
+import { handleInboundComment } from "../agents/commentAgent/index.js";
+import { markCommenterDmReceived } from "../persistence/commentAgentStore.js";
 
 /** Seven days, matching the pipeline's own idempotency horizon. */
 const EVENT_DEDUPE_TTL_SECONDS = 7 * 24 * 3600;
@@ -176,7 +180,54 @@ export class ZernioWebhookHandler {
       return { status: 400, body: { ok: false, error: "Body is not valid JSON" }, processing: null };
     }
 
-    /* 4. Not actionable: a different event type, our own outgoing echo, a
+    /* 4. Comment agent first — cheaper check, never overlaps with DMs. */
+    const commentEvt = parseZernioInboundComment(body);
+    if (commentEvt) {
+      if (commentEvt.accountId && !accountMatches(commentEvt.accountId)) {
+        logger.log("inbound_rejected", { reason: "zernio_comment_account_mismatch" });
+        return {
+          status: 200,
+          body: { ok: true, ignored: true, reason: "account_mismatch" },
+          processing: null,
+        };
+      }
+      const accountId = zernioTikTokAccountId() || commentEvt.accountId || "";
+      if (!accountId) {
+        logger.log("inbound_rejected", { reason: "zernio_account_not_configured" });
+        return {
+          status: 200,
+          body: { ok: true, ignored: true, reason: "account_not_configured" },
+          processing: null,
+        };
+      }
+      logger.log("inbound_accepted", {
+        kind: "comment",
+        commentId: commentEvt.commentId,
+        preview: preview(commentEvt.text),
+      });
+      return {
+        status: 200,
+        body: { ok: true },
+        processing: (async () => {
+          try {
+            const outcome = await handleInboundComment(commentEvt, accountId);
+            logger.log("comment_agent_outcome", {
+              commentId: commentEvt.commentId,
+              decision: outcome.decision,
+              bucket: outcome.bucket,
+              reason: outcome.reason,
+            });
+          } catch (err) {
+            logger.log("pipeline_error", {
+              stage: "zernio_comment",
+              error: err instanceof Error ? err.message : "unknown",
+            });
+          }
+        })(),
+      };
+    }
+
+    /* 5. Not actionable DM: a different event type, our own outgoing echo, a
        non-TikTok message, or a payload with no sender. All 200, because Zernio
        must not retry something we have correctly decided to ignore. */
     const parsed = parseZernioInboundMessage(body);
@@ -234,6 +285,19 @@ export class ZernioWebhookHandler {
    */
   private async processAfterAck(evt: ZernioInboundMessage, logger: Logger): Promise<void> {
     try {
+      /* Close the comment→DM loop: TikTok author id === DM sender id. */
+      try {
+        const attributed = markCommenterDmReceived(evt.senderId);
+        if (attributed > 0) {
+          logger.log("comment_to_dm_converted", {
+            authorId: evt.senderId.slice(0, 8),
+            commentRowsMarked: attributed,
+          });
+        }
+      } catch {
+        /* Ledger optional for the DM turn — never block a reply. */
+      }
+
       /* Zernio has no "previous outbound" field, so the VA's manual opener is
          read back off the conversation. A failure costs the model one piece of
          context; it must never cost the lead their reply. fetchManualOpener

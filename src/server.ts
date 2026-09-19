@@ -195,6 +195,20 @@ async function main(): Promise<void> {
         });
       }
 
+      if (route === "GET /api/comment-agent/status") {
+        if (auth !== "ok") return denyAuth(res, auth, "The comment agent status");
+        const { isCommentAgentEnabled } = await import("./agents/commentAgent/index.js");
+        const { getCommentAgentStats, getRecentCommentActions, getFollowUpQueue } = await import(
+          "./persistence/commentAgentStore.js"
+        );
+        return json(res, 200, {
+          enabled: isCommentAgentEnabled(),
+          stats: getCommentAgentStats(),
+          recent: getRecentCommentActions(40),
+          followUp: getFollowUpQueue(24, 50),
+        });
+      }
+
       if (route === "GET /api/metrics") {
         if (auth !== "ok") return denyAuth(res, auth, "The dashboard API");
         return json(res, 200, await getMetrics(store));

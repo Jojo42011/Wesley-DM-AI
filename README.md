@@ -134,6 +134,17 @@ configured, the configured account id, whether Zernio auth succeeds, the
 connected TikTok accounts, and whether Wesley's account is present and active.
 It never returns the key or the secret.
 
+
+## Comment agent (TikTok → public reply → DM)
+
+Same Zernio webhook as DMs. On `comment.received` the agent classifies the
+comment, posts a short public reply that warmly invites a DM (TikTok forbids
+businesses opening threads), then the **DM agent** takes over when they message.
+
+Requires `COMMENT_AGENT_ENABLED=true` (and the same Zernio secrets). Rate limits
+and a SQLite ledger under `/data/comment-agent.db` prevent spam and self-reply
+loops. Status: `GET /api/comment-agent/status` (dashboard auth).
+
 ## Access control
 
 | Route | Gate |
