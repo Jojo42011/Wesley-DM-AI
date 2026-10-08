@@ -47,6 +47,7 @@ import { InboundBatcher, DEFAULT_DEBOUNCE_MS } from "./messageDebounce.js";
 import {
   accountMatches,
   fetchManualOpener,
+  fetchConversationHistory,
   parseZernioInboundMessage,
   sendZernioReply,
   verifyZernioSignature,
@@ -56,7 +57,7 @@ import {
   type ZernioSendResult,
 } from "../integrations/zernio/dm.js";
 import { parseZernioInboundComment } from "../integrations/zernio/comments.js";
-import { handleInboundComment } from "../agents/commentAgent/index.js";
+import { enqueueComment, drainCommentQueue } from "../agents/commentAgent/index.js";
 import { markCommenterDmReceived } from "../persistence/commentAgentStore.js";
 
 /** Seven days, matching the pipeline's own idempotency horizon. */
@@ -69,10 +70,11 @@ const EVENT_DEDUPE_TTL_SECONDS = 7 * 24 * 3600;
  */
 export interface ZernioTransport {
   fetchManualOpener: typeof fetchManualOpener;
+  fetchConversationHistory?: typeof fetchConversationHistory;
   sendZernioReply: typeof sendZernioReply;
 }
 
-const REAL_TRANSPORT: ZernioTransport = { fetchManualOpener, sendZernioReply };
+const REAL_TRANSPORT: ZernioTransport = { fetchManualOpener, fetchConversationHistory, sendZernioReply };
 
 export interface ZernioWebhookDeps {
   pipeline: PipelineDeps;
@@ -200,6 +202,7 @@ export class ZernioWebhookHandler {
           processing: null,
         };
       }
+      enqueueComment(commentEvt, accountId);
       logger.log("inbound_accepted", {
         kind: "comment",
         commentId: commentEvt.commentId,
@@ -210,13 +213,7 @@ export class ZernioWebhookHandler {
         body: { ok: true },
         processing: (async () => {
           try {
-            const outcome = await handleInboundComment(commentEvt, accountId);
-            logger.log("comment_agent_outcome", {
-              commentId: commentEvt.commentId,
-              decision: outcome.decision,
-              bucket: outcome.bucket,
-              reason: outcome.reason,
-            });
+            await drainCommentQueue(async id => !!(await this.deps.pipeline.store.leads.findByExternalId("tiktok", id)));
           } catch (err) {
             logger.log("pipeline_error", {
               stage: "zernio_comment",
@@ -303,9 +300,14 @@ export class ZernioWebhookHandler {
          context; it must never cost the lead their reply. fetchManualOpener
          already swallows its own errors, but the turn is not allowed to depend
          on that: a throw here degrades to "no opener" and the turn continues. */
-      let manualOpener: string | null = null;
+      const history = await this.transport.fetchConversationHistory?.({
+        conversationId: evt.conversationId, accountId: evt.accountId,
+        beforeMessageId: evt.platformMessageId, beforeAt: evt.sentAt,
+      }).catch(() => ({ messages: [], complete: false }));
+      if (history && !history.complete) logger.log("history_incomplete", { conversationId: evt.conversationId });
+      let manualOpener: string | null = history?.messages.filter(m => m.role === "assistant").at(-1)?.text ?? null;
       try {
-        manualOpener = await this.transport.fetchManualOpener({
+        if (!this.transport.fetchConversationHistory) manualOpener = await this.transport.fetchManualOpener({
           conversationId: evt.conversationId,
           accountId: evt.accountId,
           beforeMessageId: evt.platformMessageId,
@@ -318,6 +320,7 @@ export class ZernioWebhookHandler {
       }
 
       const event = toInboundEvent(evt, manualOpener);
+      event.conversationHistory = history?.messages;
       const batch = await this.batcher.submit(`tiktok:${evt.senderId}`, event);
 
       /* Every provider message id in the batch that is not the one the pipeline

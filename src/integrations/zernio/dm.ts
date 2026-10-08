@@ -44,6 +44,8 @@
  */
 import { createHmac, timingSafeEqual, randomUUID } from "node:crypto";
 
+import { readConversationHistory } from "./history.js";
+
 const ZERNIO_API_BASE = process.env.ZERNIO_API_BASE?.trim() || "https://zernio.com/api/v1";
 
 /** Zernio's documented budget for our webhook ack. We stay well inside it. */
@@ -129,6 +131,7 @@ export interface ZernioInboundMessage {
   senderUsername: string | null;
   text: string;
   platformMessageId: string | null;
+  sentAt?: string | null;
 }
 
 export type ZernioRejectReason =
@@ -198,6 +201,7 @@ export function parseZernioInboundMessage(body: unknown): ZernioParseResult {
          something. */
       text: str(message.text) ?? "",
       platformMessageId: str(message.platformMessageId) ?? str(message.id),
+      sentAt: str(message.sentAt) ?? str(message.createdAt),
     },
   };
 }
@@ -221,6 +225,7 @@ async function zernioFetch(
       ...(init.headers ?? {}),
     },
     body: init.body,
+    signal: AbortSignal.timeout(12000),
   });
   const text = await res.text();
   let json: unknown = null;
@@ -310,7 +315,7 @@ export async function fetchManualOpener(input: {
     for (let i = earlier.length - 1; i >= 0; i--) {
       const m = earlier[i]!;
       if (str(m.direction) !== "outgoing") continue;
-      const text = str(m.text);
+      const text = str(m.message) ?? str(m.text);
       if (text) return text;
     }
     return null;
@@ -434,4 +439,9 @@ export async function zernioAccounts(): Promise<{
       error: describeError(err instanceof Error ? err.message : String(err), 0),
     };
   }
+}
+
+export async function fetchConversationHistory(input: { conversationId: string; accountId: string; beforeMessageId?: string | null; beforeAt?: string | null }) {
+  if (!apiKey()) return { messages: [], complete: false };
+  return readConversationHistory(input, p => zernioFetch(p, { method: "GET" }));
 }

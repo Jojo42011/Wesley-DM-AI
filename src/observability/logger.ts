@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
  */
 
 export type LogEvent =
+  | "history_incomplete"
   | "inbound_accepted"
   | "inbound_rejected"
   | "manual_opener_seeded"

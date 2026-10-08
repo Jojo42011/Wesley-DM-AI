@@ -46,9 +46,10 @@ const PHONE_CANDIDATE = /(\+?\d[\d\s().-]{6,18}\d)/g;
 export function extractPhone(
   messages: Message[],
   defaultRegion = "US",
+  historyLimit = 6,
 ): PhoneExtraction | null {
   // Search recent USER messages only, newest first.
-  const recent = messages.filter((m) => m.role === "user").slice(-6).reverse();
+  const recent = messages.filter((m) => m.role === "user").slice(-historyLimit).reverse();
   for (const msg of recent) {
     const candidates = msg.text.match(PHONE_CANDIDATE) ?? [];
     for (const cand of candidates) {

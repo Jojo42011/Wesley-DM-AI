@@ -2,7 +2,7 @@
  * Comment agent guards — the sequence that keeps public replies safe.
  * Classification is injected so tests never need a live Anthropic key.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -30,9 +30,12 @@ beforeEach(() => {
   process.env.ZERNIO_WEBHOOK_SECRET = "test-secret";
   process.env.ZERNIO_DM_API_KEY = "sk_test";
   process.env.ZERNIO_TIKTOK_ACCOUNT_ID = "acct_wesley";
+  // Never make a network call from the webhook regression test.
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ comments: [] }), { status: 200 })));
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   resetCommentAgentDbForTests();
   rmSync(dbDir, { recursive: true, force: true });
   for (const k of [

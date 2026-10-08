@@ -22,6 +22,22 @@ const ACCOUNT = "acct_wesley";
 const gateSystem = "classify whether an inbound TikTok DM";
 const genSystem = "You write exactly one TikTok DM as Wesley";
 
+it("syncs older contact context through the production history transport path", async () => {
+  const deps = makeDeps();
+  const transport = fakeTransport();
+  transport.transport.fetchConversationHistory = async () => ({complete:true,messages:[
+    {id:"prior-opener",role:"assistant",text:"Happy to help",at:"2026-08-01T10:00:00Z"},
+    {id:"prior-phone",role:"user",text:"210 555 0198",at:"2026-08-01T10:01:00Z"},
+  ]});
+  const handler = new ZernioWebhookHandler({pipeline:deps,transport:transport.transport,debounceMs:1});
+  const ack=await deliver(handler,inboundBody({text:"Price location?"}));
+  expect(ack.status).toBe(200);
+  expect(transport.openerCalls).toHaveLength(0);
+  expect(transport.sends).toHaveLength(1);
+  expect(transport.sends[0]!.text).toContain("number on file");
+  expect(deps.handoff.calls).toHaveLength(0);
+});
+
 function sign(body: string, secret = SECRET): string {
   return createHmac("sha256", secret).update(Buffer.from(body, "utf8")).digest("hex");
 }

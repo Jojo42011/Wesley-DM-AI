@@ -82,11 +82,12 @@ export class MemoryStore implements Store {
       async getMessages(leadId, limit = 200) {
         return self.messageRows
           .filter((m) => m.leadId === leadId)
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
           .slice(-limit)
           .map((m) => ({ ...m }));
       },
       async getLatestMessage(leadId) {
-        const msgs = self.messageRows.filter((m) => m.leadId === leadId);
+        const msgs = self.messageRows.filter((m) => m.leadId === leadId).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
         return msgs.length ? { ...msgs[msgs.length - 1]! } : null;
       },
       async countAssistantMessages(leadId) {

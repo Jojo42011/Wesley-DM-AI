@@ -109,6 +109,9 @@ async function main(): Promise<void> {
     ? new WebhookHandoff(process.env.HANDOFF_WEBHOOK_URL)
     : new NullHandoff();
 
+  const { startCommentQueueWorker } = await import("./agents/commentAgent/index.js");
+  startCommentQueueWorker(async id => !!(await store.leads.findByExternalId("tiktok", id)));
+
   const deps: PipelineDeps = {
     store,
     llm: new AnthropicLlm(),

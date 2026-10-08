@@ -1,5 +1,6 @@
 import type { DmCampaignPolicy, Lead, Message, Sentiment } from "../domain/types.js";
 import { isNearDuplicate } from "./similarity.js";
+import { requestsPhoneNumber } from "./propertyKnowledge.js";
 
 /**
  * Output validation and sanitization. Rejection reasons drive one retry
@@ -41,7 +42,6 @@ export function enforceStyle(text: string): string {
   return out;
 }
 
-const ASKS_FOR_PHONE = /\b(what'?s|send|drop|share|give me|can i get)\b.{0,30}\b(number|phone|digits)\b/i;
 const ASKS_FOR_EMAIL = /\b(what'?s|send|drop|share|give me|can i get)\b.{0,30}\b(e-?mail)\b/i;
 
 function countSentences(text: string): number {
@@ -108,7 +108,7 @@ export function validateReply(
   }
 
   // Never ask for already-captured fields.
-  if (lead.phone && ASKS_FOR_PHONE.test(reply)) reasons.push("asks_for_captured_phone");
+  if (lead.phone && requestsPhoneNumber(reply)) reasons.push("asks_for_captured_phone");
   if (lead.email && ASKS_FOR_EMAIL.test(reply)) reasons.push("asks_for_captured_email");
 
   // Assistant-like phrases.

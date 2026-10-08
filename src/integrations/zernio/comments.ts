@@ -37,6 +37,7 @@ async function zernioFetch(
       ...(init.headers ?? {}),
     },
     body: init.body,
+    signal: AbortSignal.timeout(12000),
   });
   const text = await res.text();
   let json: unknown = null;
@@ -120,13 +121,17 @@ export async function readBackComment(
   };
   if (!apiKey()) return miss;
   try {
+    let cursor = "";
+    const seen = new Set<string>();
+    for (let page=0; page<10; page++) {
     const qs = new URLSearchParams({ accountId, limit: "100" });
+    if (cursor) qs.set("cursor", cursor);
     const r = await zernioFetch(
       `/inbox/comments/${encodeURIComponent(platformPostId)}?${qs}`,
       { method: "GET" },
     );
     if (!r.ok) return miss;
-    const payload = r.json as { comments?: unknown; data?: unknown } | null;
+    const payload = r.json as { comments?: unknown; data?: unknown; pagination?: { hasMore?: boolean; nextCursor?: string } } | null;
     const list = (
       Array.isArray(payload?.comments) ? payload.comments : Array.isArray(payload?.data) ? payload.data : []
     ) as Record<string, unknown>[];
@@ -139,7 +144,11 @@ export async function readBackComment(
     }
 
     const hit = flat.find((m) => str(m.id) === commentId);
-    if (!hit) return miss;
+    if (!hit) {
+      const next = payload?.pagination?.nextCursor;
+      if (!payload?.pagination?.hasMore || !next || seen.has(next)) return miss;
+      seen.add(next); cursor = next; continue;
+    }
     const from = (hit.from ?? {}) as Record<string, unknown>;
     return {
       found: true,
@@ -150,6 +159,8 @@ export async function readBackComment(
       isHidden: hit.isHidden === true,
       replyCount: typeof hit.replyCount === "number" ? hit.replyCount : 0,
     };
+    }
+    return miss;
   } catch {
     return miss;
   }

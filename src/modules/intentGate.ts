@@ -1,3 +1,4 @@
+import { respondsToDmInvitation } from "../integrations/zernio/history.js";
 import type { DmCampaignPolicy, IntentGateResult } from "../domain/types.js";
 import {
   INTENT_GATE_JSON_SCHEMA,
@@ -49,6 +50,7 @@ export function deterministicGate(message: string): GateDecision | null {
   if (SPAM_PATTERNS.some((re) => re.test(t))) {
     return { action: "reject", reason: "spam_or_solicitation" };
   }
+  if (respondsToDmInvitation(t)) return { action: "accept", reason: "responding_to_dm_invitation" };
   // Wesley's funnel: leads open with a bare video keyword ("SUNSET",
   // "ELEVATOR", "lazy river"). Short non-spam messages are always real.
   const words = t.split(/\s+/);

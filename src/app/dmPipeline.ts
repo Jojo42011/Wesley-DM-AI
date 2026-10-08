@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { asksForListingFacts, unverifiedListingReply, requestsPhoneNumber } from "./propertyKnowledge.js";
 import type {
   DmCampaignPolicy,
   InboundEvent,
@@ -189,6 +190,28 @@ async function processLocked(
     return finish(logger, started, lead, stageBefore, lead.stage, null, "suppressed_opt_out", true);
   }
 
+  // History is context, not a new inbound event. Never replay handoffs or change opt-out.
+  const history = event.conversationHistory ?? [];
+  const existing = await store.conversations.getMessages(lead.id, 10000);
+  for (const item of history) {
+    if (existing.some(m => m.providerMessageId === item.id ||
+      (m.role === item.role && m.text === item.text && Math.abs(Date.parse(m.createdAt) - Date.parse(item.at)) < 120000))) continue;
+    const historical: Message = { id: randomUUID(), leadId: lead.id, role: item.role, text: item.text,
+      providerMessageId: item.id, source: "tiktok_zernio", createdAt: item.at };
+    await store.conversations.appendMessage(historical);
+    existing.push(historical);
+  }
+  if (!lead.phone && existing.length) {
+    existing.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    const phone = extractPhone(existing, policy.defaultPhoneRegion, 10000);
+    if (phone) {
+      lead.phone = phone.e164;
+      await store.conversations.recordContactCapture(lead.id, { field: "phone", value: phone.e164,
+        sourceMessageId: phone.sourceMessageId, confidence: phone.confidence, capturedAt: now() });
+      await store.leads.update(lead);
+    }
+  }
+
   /* -------------------------------- manual opener seeding (exactly once) */
   const seeded = await seedManualOpener(store, lead, event.wesleyPreviousOutbound);
   if (seeded.seeded) {
@@ -280,6 +303,15 @@ async function processLocked(
       await store.leads.update(lead);
       return finish(logger, started, lead, stageBefore, lead.stage, reply, "already_sent_not_received", false);
     }
+  }
+
+  // There is no verified per-video property source yet. Do not infer facts from the agent's city.
+  if (asksForListingFacts(text)) {
+    const reply = unverifiedListingReply(Boolean(lead.phone));
+    await appendAssistantMessage(store, lead, reply, "automation");
+    lead.lastOutboundAt = now();
+    await store.leads.update(lead);
+    return finish(logger, started, lead, stageBefore, lead.stage, reply, "unverified_listing", false);
   }
 
   // G7 — direct question with a policy-approved pinned answer.
@@ -449,6 +481,10 @@ async function processLocked(
         logger.log("reply_fallback", { leadId: lead.id, reason: "validation_failed_twice" });
       }
     }
+  }
+
+  if (lead.phone && finalReply && requestsPhoneNumber(finalReply)) {
+    finalReply = "I have your number on file. What would you like to know about this one?";
   }
 
   // Concurrency re-check: only persist if OUR user turn is still the latest
