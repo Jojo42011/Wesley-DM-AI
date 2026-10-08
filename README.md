@@ -1,5 +1,11 @@
 # Wesley DM AI — TikTok Lead Concierge
 
+The October 2026 reliability update adds paginated Zernio conversation recovery (up to 1,000 timestamped messages before the current turn), deterministic phone recovery without replaying old CRM handoffs, and recognition of explicit replies to DM invitations. Incomplete history logs `history_incomplete`; existing opt-outs and stored contact numbers remain authoritative.
+
+Public comments use fact-free wording selected in code. The model classifies intent but cannot publish a guessed city, price or property specification. Property-detail DMs receive a verification response until verified per-listing knowledge is available. Transcription is not included. Existing local contacts receive wording that continues the conversation.
+
+Signed comment events persist in SQLite `comment_queue` before acknowledgment. A serial worker retries rate limits, read-back failures and unavailable classification at five-minute intervals, within the existing 48-hour age cap. Other transient retries stop after ten attempts. Failed POSTs with ambiguous delivery are left for manual review, not blindly resent. The queue only includes newly received events; it does not sweep old comments. Run `npm test` and `npm run build`; history, public-copy safety, opt-outs, phone preservation, webhook integration and queue restart coverage are included. Production provider permissions and delivery require a separate rollout check.
+
 Production-grade TikTok DM automation for Wesley (realtor). Inbound TikTok DMs
 arrive through the **Zernio** inbox; the engine understands the conversation,
 replies in Wesley's learned voice, and deterministically captures **phone

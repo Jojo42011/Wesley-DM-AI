@@ -42,6 +42,10 @@ let db: Database.Database | null = null;
 let openedPath: string | null = null;
 
 function initCommentAgentSchema(database: Database.Database): void {
+  database.exec(`CREATE TABLE IF NOT EXISTS comment_queue (
+    comment_id TEXT PRIMARY KEY, account_id TEXT NOT NULL, event_json TEXT NOT NULL,
+    next_attempt INTEGER NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'pending'
+  )`);
   database.exec(`
     CREATE TABLE IF NOT EXISTS comment_actions (
       comment_id         TEXT PRIMARY KEY,
@@ -149,7 +153,9 @@ function rowToAction(r: Record<string, unknown>): CommentActionRow {
 /** Have we already made a decision about this exact comment? */
 export function hasActedOnComment(commentId: string): boolean {
   const row = getCommentAgentDb()
-    .prepare(`SELECT 1 FROM comment_actions WHERE comment_id = ? LIMIT 1`)
+    .prepare(`SELECT 1 FROM comment_actions WHERE comment_id = ?
+      AND decision NOT IN ('skipped_rate_limit','skipped_cannot_reply')
+      AND NOT (decision = 'failed' AND reason = 'classification unavailable') LIMIT 1`)
     .get(commentId);
   return Boolean(row);
 }
@@ -337,4 +343,23 @@ export function getRecentCommentActions(limit = 40): CommentActionRow[] {
     .prepare(`SELECT * FROM comment_actions ORDER BY acted_at DESC LIMIT ?`)
     .all(limit) as Record<string, unknown>[];
   return rows.map(rowToAction);
+}
+
+/** Only new webhook events enter this queue; never sweep historical comments. */
+export function enqueueComment(event: import("../integrations/zernio/comments.js").ZernioInboundComment, accountId: string): void {
+  getCommentAgentDb().prepare("INSERT OR IGNORE INTO comment_queue (comment_id,account_id,event_json,next_attempt) VALUES (?,?,?,?)")
+    .run(event.commentId, accountId, JSON.stringify({ ...event, createdAt: event.createdAt || new Date().toISOString() }), Date.now());
+}
+export function claimQueuedComment(): { event: import("../integrations/zernio/comments.js").ZernioInboundComment; accountId: string; attempts: number } | null {
+  const db = getCommentAgentDb();
+  return db.transaction(() => {
+    const row = db.prepare("SELECT * FROM comment_queue WHERE status='pending' AND next_attempt<=? ORDER BY next_attempt LIMIT 1").get(Date.now()) as any;
+    if (!row) return null;
+    db.prepare("UPDATE comment_queue SET next_attempt=?, attempts=attempts+1 WHERE comment_id=?").run(Date.now()+300000,row.comment_id);
+    return { event: JSON.parse(row.event_json), accountId: row.account_id, attempts: row.attempts+1 };
+  })();
+}
+export function finishQueuedComment(id: string, retry: boolean): void {
+  getCommentAgentDb().prepare("UPDATE comment_queue SET status=?,next_attempt=? WHERE comment_id=?")
+    .run(retry ? "pending" : "done", Date.now()+300000, id);
 }

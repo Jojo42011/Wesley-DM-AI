@@ -225,6 +225,7 @@ export interface InboundEvent {
    * ManyChat-shaped path, which is what it was before Zernio existed.
    */
   transport?: Extract<MessageSource, "tiktok_manychat" | "tiktok_zernio">;
+  conversationHistory?: import("../integrations/zernio/history.js").HistoryMessage[];
 }
 
 export interface PipelineOutcome {

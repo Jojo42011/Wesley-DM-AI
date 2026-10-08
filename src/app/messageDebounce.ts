@@ -83,6 +83,7 @@ export function combineEvents(events: InboundEvent[]): InboundEvent {
   return {
     ...last,
     message,
+    conversationHistory: events[0]?.conversationHistory,
     wesleyPreviousOutbound: opener ?? last.wesleyPreviousOutbound,
   };
 }
